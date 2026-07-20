@@ -14,8 +14,15 @@ from homeassistant.util.percentage import (
     ranged_value_to_percentage,
 )
 
-from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_AIR, normalize_device_category
+from .const import (
+    DEVICE_TYPE_AIR,
+    DOMAIN,
+    MANUFACTURER,
+    Z120_PRODUCT_KEY,
+    normalize_device_category,
+)
 from .coordinator import Air352Coordinator
+from .entity import async_set_device_properties
 
 SPEED_RANGE = (1, 6)
 
@@ -26,7 +33,6 @@ PRESET_MODE_SKIN = "skin"
 PRESET_MODE_AIR_DRYING = "air_drying"
 PRESET_MODE_GEAR_PREFIX = "gear_"
 
-Z120_PRODUCT_KEY = "a10n269QEvP"
 Z120_GEAR_PRESET_MODES = [
     f"{PRESET_MODE_GEAR_PREFIX}{level}"
     for level in range(SPEED_RANGE[0], SPEED_RANGE[1] + 1)
@@ -151,8 +157,10 @@ async def async_setup_entry(
         if category != DEVICE_TYPE_AIR:
             continue
         iot_id = device["iotId"]
+        info = coordinator.device_infos.get(iot_id, {})
+        product_key = device.get("productKey") or info.get("productKey")
         props = coordinator.data.get(iot_id, {}) if coordinator.data else {}
-        if "PowerSwitch" in props:
+        if product_key == Z120_PRODUCT_KEY or "PowerSwitch" in props:
             entities.append(Air352Fan(coordinator, device))
     async_add_entities(entities)
 
@@ -176,6 +184,9 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         self._attr_unique_id = f"{self._iot_id}_fan"
         info = coordinator.device_infos.get(self._iot_id, {})
         self._product_key = device.get("productKey") or info.get("productKey")
+        self._attr_entity_registry_enabled_default = (
+            self._product_key != Z120_PRODUCT_KEY
+        )
         self._attr_supported_features = get_supported_features(self._product_key)
         self._attr_preset_modes = get_preset_modes(self._product_key)
         self._attr_device_info = {
@@ -252,11 +263,13 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
                 "WorkMode",
                 get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
             )
-        await self.coordinator.api.set_device_properties(self._iot_id, props)
+        await async_set_device_properties(self.coordinator, self._iot_id, props)
         self._update_local_state(props)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.api.set_device_properties(self._iot_id, {"PowerSwitch": 0})
+        await async_set_device_properties(
+            self.coordinator, self._iot_id, {"PowerSwitch": 0}
+        )
         self._update_local_state({"PowerSwitch": 0})
 
     async def async_set_percentage(self, percentage: int) -> None:
@@ -269,14 +282,14 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
             speed_key: speed,
             "WorkMode": get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
         }
-        await self.coordinator.api.set_device_properties(self._iot_id, props)
+        await async_set_device_properties(self.coordinator, self._iot_id, props)
         self._update_local_state(props)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         props = self._properties_for_preset(preset_mode)
         if not props:
             return
-        await self.coordinator.api.set_device_properties(self._iot_id, props)
+        await async_set_device_properties(self.coordinator, self._iot_id, props)
         self._update_local_state(props)
 
     def _update_local_state(self, values: dict[str, int]) -> None:
@@ -287,8 +300,9 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
                 prop["value"] = value
             else:
                 props[key] = {"value": value}
-        self.async_write_ha_state()
+        self.coordinator.async_set_updated_data(self.coordinator.data)
 
     @property
     def available(self) -> bool:
-        return self._iot_id in (self.coordinator.data or {})
+        props = (self.coordinator.data or {}).get(self._iot_id, {})
+        return super().available and "PowerSwitch" in props

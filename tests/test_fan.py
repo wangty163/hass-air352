@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import unittest
 
-from fan_test_support import FanEntityFeature, load_fan_module, make_fan
+from fan_test_support import (
+    FanEntityFeature,
+    HomeAssistantError,
+    FakeCoordinator,
+    load_fan_module,
+    make_fan,
+    setup_fans,
+)
 
 
 fan_module = load_fan_module()
@@ -58,6 +65,15 @@ class FanContractTests(unittest.TestCase):
         entity, _ = make_fan(fan_module)
 
         self.assertEqual(entity._attr_unique_id, "iot-1_fan")
+
+    def test_z120_compatibility_fan_is_disabled_by_default(self):
+        entity, _ = make_fan(fan_module)
+        legacy_entity, _ = make_fan(fan_module, product_key="legacy-product")
+
+        self.assertFalse(entity._attr_entity_registry_enabled_default)
+        self.assertTrue(
+            getattr(legacy_entity, "_attr_entity_registry_enabled_default", True)
+        )
 
     def test_power_percentage_and_availability_state(self):
         entity, coordinator = make_fan(fan_module)
@@ -130,7 +146,7 @@ class FanActionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             coordinator.data["iot-1"]["PowerSwitch"]["value"], 0
         )
-        self.assertEqual(entity.write_count, 1)
+        coordinator.async_set_updated_data.assert_called_once_with(coordinator.data)
 
     async def test_direct_percentage_method_preserves_legacy_mapping(self):
         entity, coordinator = make_fan(fan_module)
@@ -180,7 +196,9 @@ class FanActionTests(unittest.IsolatedAsyncioTestCase):
                         coordinator.data["iot-1"]["WorkMode"]["value"], 4
                     )
                     self.assertEqual(entity.preset_mode, f"gear_{level}")
-                    self.assertEqual(entity.write_count, 1)
+                    coordinator.async_set_updated_data.assert_called_once_with(
+                        coordinator.data
+                    )
 
     async def test_turn_on_with_named_gear_also_powers_on(self):
         entity, coordinator = make_fan(fan_module)
@@ -240,12 +258,29 @@ class FanActionTests(unittest.IsolatedAsyncioTestCase):
         )
         coordinator.api.set_device_properties.side_effect = RuntimeError("cloud error")
 
-        with self.assertRaisesRegex(RuntimeError, "cloud error"):
+        with self.assertRaisesRegex(HomeAssistantError, "Failed to update") as raised:
             await entity.async_set_preset_mode("gear_5")
 
+        self.assertIsInstance(raised.exception.__cause__, RuntimeError)
         self.assertEqual(coordinator.data["iot-1"]["WorkMode"]["value"], 1)
         self.assertEqual(coordinator.data["iot-1"]["WindSpeed"]["value"], 1)
-        self.assertFalse(hasattr(entity, "write_count"))
+        coordinator.async_set_updated_data.assert_not_called()
+
+
+class FanSetupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_known_z120_fan_registers_after_empty_first_snapshot(self):
+        coordinator = FakeCoordinator({})
+
+        entities = await setup_fans(fan_module, coordinator)
+
+        self.assertEqual(len(entities), 1)
+        entity = entities[0]
+        self.assertEqual(entity._attr_unique_id, "iot-1_fan")
+        self.assertFalse(entity.available)
+
+        coordinator.data["iot-1"]["PowerSwitch"] = {"value": 1}
+        self.assertTrue(entity.available)
+        self.assertTrue(entity.is_on)
 
 
 if __name__ == "__main__":

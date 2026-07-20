@@ -5,7 +5,7 @@ import sys
 import types
 from enum import IntFlag
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -41,8 +41,16 @@ class CoordinatorEntity:
     def __class_getitem__(cls, _item):
         return cls
 
+    @property
+    def available(self):
+        return getattr(self.coordinator, "last_update_success", True)
+
 
 class EmptyType:
+    pass
+
+
+class HomeAssistantError(Exception):
     pass
 
 
@@ -84,6 +92,8 @@ def load_fan_module():
     entity_platform.AddEntitiesCallback = EmptyType
     update_coordinator = types.ModuleType("homeassistant.helpers.update_coordinator")
     update_coordinator.CoordinatorEntity = CoordinatorEntity
+    exceptions = types.ModuleType("homeassistant.exceptions")
+    exceptions.HomeAssistantError = HomeAssistantError
     util = types.ModuleType("homeassistant.util")
     percentage = types.ModuleType("homeassistant.util.percentage")
     percentage.percentage_to_ranged_value = _percentage_to_ranged_value
@@ -98,6 +108,7 @@ def load_fan_module():
         "homeassistant.helpers": helpers,
         "homeassistant.helpers.entity_platform": entity_platform,
         "homeassistant.helpers.update_coordinator": update_coordinator,
+        "homeassistant.exceptions": exceptions,
         "homeassistant.util": util,
         "homeassistant.util.percentage": percentage,
     }
@@ -107,6 +118,7 @@ def load_fan_module():
     const.DOMAIN = "air352"
     const.MANUFACTURER = "352"
     const.DEVICE_TYPE_AIR = "AirPurifier"
+    const.Z120_PRODUCT_KEY = "a10n269QEvP"
     const.normalize_device_category = lambda value: value
     sys.modules["custom_components.air352.const"] = const
 
@@ -126,7 +138,17 @@ class FakeCoordinator:
                 "firmwareVersion": "test-firmware",
             }
         }
+        self.devices = [
+            {
+                "iotId": "iot-1",
+                "productKey": product_key,
+                "productName": "352 purifier",
+                "categoryKey": "AirPurifier",
+            }
+        ]
         self.api = types.SimpleNamespace(set_device_properties=AsyncMock())
+        self.async_set_updated_data = Mock()
+        self.last_update_success = True
 
 
 def make_fan(module, properties=None, product_key="a10n269QEvP"):
@@ -143,3 +165,22 @@ def make_fan(module, properties=None, product_key="a10n269QEvP"):
         "productName": "352 purifier",
     }
     return module.Air352Fan(coordinator, device), coordinator
+
+
+class FakeEntry:
+    entry_id = "entry-1"
+
+
+class FakeHass:
+    def __init__(self, coordinator: FakeCoordinator) -> None:
+        self.data = {"air352": {FakeEntry.entry_id: coordinator}}
+
+
+async def setup_fans(module, coordinator: FakeCoordinator) -> list:
+    entities = []
+    await module.async_setup_entry(
+        FakeHass(coordinator),
+        FakeEntry(),
+        lambda new_entities: entities.extend(new_entities),
+    )
+    return entities

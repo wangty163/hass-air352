@@ -109,6 +109,29 @@
         }
       }
     },
+    "select": {
+      "work_mode": {
+        "name": "运行模式",
+        "state": {
+          "manual": "手动",
+          "auto": "自动",
+          "sleep": "睡眠",
+          "skin": "Skin",
+          "air_drying": "风干"
+        }
+      },
+      "manual_gear": {
+        "name": "手动档位",
+        "state": {
+          "gear_1": "1档",
+          "gear_2": "2档",
+          "gear_3": "3档",
+          "gear_4": "4档",
+          "gear_5": "5档",
+          "gear_6": "6档"
+        }
+      }
+    },
     "switch": {
       "powerswitch": { "name": "电源" },
       "childlockswitch": { "name": "童锁" },

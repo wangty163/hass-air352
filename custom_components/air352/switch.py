@@ -15,9 +15,11 @@ from .const import (
     DEVICE_TYPE_AIR,
     DEVICE_TYPE_PURIFIER,
     DEVICE_TYPE_HUMIDIFIER,
+    Z120_PRODUCT_KEY,
     normalize_device_category,
 )
 from .coordinator import Air352Coordinator
+from .entity import async_set_device_properties
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -29,7 +31,7 @@ SWITCH_DESCRIPTIONS: list[Air352SwitchDescription] = [
     Air352SwitchDescription(
         key="PowerSwitch", name="Power",
         icon="mdi:power",
-        category_keys=(DEVICE_TYPE_HUMIDIFIER,),
+        category_keys=(DEVICE_TYPE_AIR, DEVICE_TYPE_HUMIDIFIER),
     ),
     Air352SwitchDescription(
         key="ChildLockSwitch", name="Child Lock",
@@ -88,8 +90,16 @@ async def async_setup_entry(
         category = normalize_device_category(device.get("categoryKey"))
         iot_id = device["iotId"]
         props = coordinator.data.get(iot_id, {}) if coordinator.data else {}
+        info = coordinator.device_infos.get(iot_id, {})
+        product_key = device.get("productKey") or info.get("productKey")
         for desc in SWITCH_DESCRIPTIONS:
-            if category in desc.category_keys and desc.key in props:
+            if category not in desc.category_keys:
+                continue
+            if desc.key == "PowerSwitch" and category == DEVICE_TYPE_AIR:
+                if product_key == Z120_PRODUCT_KEY:
+                    entities.append(Air352Switch(coordinator, device, desc))
+                continue
+            if desc.key in props:
                 entities.append(Air352Switch(coordinator, device, desc))
     async_add_entities(entities)
 
@@ -122,11 +132,15 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         return bool(val)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.api.set_device_properties(self._iot_id, {self.entity_description.key: 1})
+        await async_set_device_properties(
+            self.coordinator, self._iot_id, {self.entity_description.key: 1}
+        )
         self._update_local_state(1)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.api.set_device_properties(self._iot_id, {self.entity_description.key: 0})
+        await async_set_device_properties(
+            self.coordinator, self._iot_id, {self.entity_description.key: 0}
+        )
         self._update_local_state(0)
 
     def _update_local_state(self, value: int) -> None:
@@ -136,8 +150,9 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
             prop["value"] = value
         else:
             props[self.entity_description.key] = {"value": value}
-        self.async_write_ha_state()
+        self.coordinator.async_set_updated_data(self.coordinator.data)
 
     @property
     def available(self) -> bool:
-        return self._iot_id in (self.coordinator.data or {})
+        props = (self.coordinator.data or {}).get(self._iot_id, {})
+        return super().available and self.entity_description.key in props

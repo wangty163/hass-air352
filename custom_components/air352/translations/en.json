@@ -109,6 +109,29 @@
         }
       }
     },
+    "select": {
+      "work_mode": {
+        "name": "Work mode",
+        "state": {
+          "manual": "Manual",
+          "auto": "Auto",
+          "sleep": "Sleep",
+          "skin": "Skin",
+          "air_drying": "Air drying"
+        }
+      },
+      "manual_gear": {
+        "name": "Manual level",
+        "state": {
+          "gear_1": "Level 1",
+          "gear_2": "Level 2",
+          "gear_3": "Level 3",
+          "gear_4": "Level 4",
+          "gear_5": "Level 5",
+          "gear_6": "Level 6"
+        }
+      }
+    },
     "switch": {
       "powerswitch": { "name": "Power" },
       "childlockswitch": { "name": "Child lock" },
