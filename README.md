@@ -31,6 +31,23 @@ Home Assistant 自定义集成，支持 [352](https://www.352air.com/) 空气净
 
 设置 → 设备与服务 → 添加集成 → 搜索 "352 Air" → 输入 352Life App 的手机号和密码。
 
+## Z120 档位控制（3.0.0）
+
+Z120 的风扇实体在 Home Assistant 原生详情页中直接提供 `1档`～`6档`，不再显示百分比滑杆。
+自动、睡眠、Skin 和风干模式与六个手动档位位于同一个模式选择器中；选择任一档位会同时进入手动模式。
+
+由于 Home Assistant 使用同一个 `SET_SPEED` 能力同时控制百分比界面和百分比服务，Z120 不再支持
+`fan.set_percentage`、`fan.increase_speed` 和 `fan.decrease_speed`。自动化请改用
+`fan.set_preset_mode`（`gear_1`～`gear_6`）；已有的 `fan.turn_on` + `percentage` 调用仍兼容。
+
+开发验证：
+
+```bash
+python3 -m unittest discover -s tests -v
+# 下面一项需在安装了 Home Assistant 的 Python 环境中执行
+PYTHONPATH=. python3 tests/verify_real_ha_contract.py -v
+```
+
 ## 工作原理
 
 1. 通过 352 API 登录获取 access_token

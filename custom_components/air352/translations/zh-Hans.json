@@ -97,7 +97,13 @@
               "sleep": "睡眠",
               "skin": "Skin",
               "manual": "手动",
-              "air_drying": "风干"
+              "air_drying": "风干",
+              "gear_1": "1档",
+              "gear_2": "2档",
+              "gear_3": "3档",
+              "gear_4": "4档",
+              "gear_5": "5档",
+              "gear_6": "6档"
             }
           }
         }

@@ -97,7 +97,13 @@
               "sleep": "Sleep",
               "skin": "Skin",
               "manual": "Manual",
-              "air_drying": "Air drying"
+              "air_drying": "Air drying",
+              "gear_1": "Level 1",
+              "gear_2": "Level 2",
+              "gear_3": "Level 3",
+              "gear_4": "Level 4",
+              "gear_5": "Level 5",
+              "gear_6": "Level 6"
             }
           }
         }

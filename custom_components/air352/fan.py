@@ -24,8 +24,13 @@ PRESET_MODE_SLEEP = "sleep"
 PRESET_MODE_MANUAL = "manual"
 PRESET_MODE_SKIN = "skin"
 PRESET_MODE_AIR_DRYING = "air_drying"
+PRESET_MODE_GEAR_PREFIX = "gear_"
 
 Z120_PRODUCT_KEY = "a10n269QEvP"
+Z120_GEAR_PRESET_MODES = [
+    f"{PRESET_MODE_GEAR_PREFIX}{level}"
+    for level in range(SPEED_RANGE[0], SPEED_RANGE[1] + 1)
+]
 
 FALLBACK_WORKMODE_MAP = {
     PRESET_MODE_AUTO: 1,
@@ -58,7 +63,27 @@ def get_workmode_map(product_key: str | None) -> Mapping[str, int]:
 
 def get_preset_modes(product_key: str | None) -> list[str]:
     """Return selectable presets for a product (standby is never a preset)."""
+    if product_key == Z120_PRODUCT_KEY:
+        return [
+            PRESET_MODE_AUTO,
+            PRESET_MODE_SLEEP,
+            PRESET_MODE_SKIN,
+            PRESET_MODE_AIR_DRYING,
+            *Z120_GEAR_PRESET_MODES,
+        ]
     return list(get_workmode_map(product_key))
+
+
+def get_supported_features(product_key: str | None) -> FanEntityFeature:
+    """Return product-specific features exposed to Home Assistant."""
+    features = (
+        FanEntityFeature.PRESET_MODE
+        | FanEntityFeature.TURN_ON
+        | FanEntityFeature.TURN_OFF
+    )
+    if product_key != Z120_PRODUCT_KEY:
+        features |= FanEntityFeature.SET_SPEED
+    return features
 
 
 def workmode_value_for_preset(product_key: str | None, preset_mode: str) -> int | None:
@@ -80,11 +105,32 @@ def normalize_workmode_value(value: Any) -> int | None:
     return None
 
 
-def preset_for_workmode_value(product_key: str | None, value: Any) -> str | None:
+def gear_level_for_preset(preset_mode: str) -> int | None:
+    """Return the 1-based Z120 gear encoded by a preset name."""
+    if not preset_mode.startswith(PRESET_MODE_GEAR_PREFIX):
+        return None
+    try:
+        level = int(preset_mode[len(PRESET_MODE_GEAR_PREFIX) :])
+    except ValueError:
+        return None
+    return level if SPEED_RANGE[0] <= level <= SPEED_RANGE[1] else None
+
+
+def preset_for_workmode_value(
+    product_key: str | None, value: Any, speed_value: Any = None
+) -> str | None:
     """Translate a cloud WorkMode value to an HA preset."""
     normalized = normalize_workmode_value(value)
     if normalized is None:
         return None
+    if (
+        product_key == Z120_PRODUCT_KEY
+        and normalized == Z120_WORKMODE_MAP[PRESET_MODE_MANUAL]
+    ):
+        speed = normalize_workmode_value(speed_value)
+        if speed is None or not SPEED_RANGE[0] <= speed <= SPEED_RANGE[1]:
+            return None
+        return f"{PRESET_MODE_GEAR_PREFIX}{speed}"
     return next(
         (
             preset
@@ -130,6 +176,7 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         self._attr_unique_id = f"{self._iot_id}_fan"
         info = coordinator.device_infos.get(self._iot_id, {})
         self._product_key = device.get("productKey") or info.get("productKey")
+        self._attr_supported_features = get_supported_features(self._product_key)
         self._attr_preset_modes = get_preset_modes(self._product_key)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._iot_id)},
@@ -175,16 +222,28 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         val = self._get_prop_value("WorkMode")
         if val is None:
             return None
-        return preset_for_workmode_value(self._product_key, val)
+        speed_key = self._get_speed_key()
+        speed = self._get_prop_value(speed_key) if speed_key is not None else None
+        return preset_for_workmode_value(self._product_key, val, speed)
+
+    def _properties_for_preset(self, preset_mode: str) -> dict[str, int]:
+        if self._product_key == Z120_PRODUCT_KEY:
+            gear_level = gear_level_for_preset(preset_mode)
+            if gear_level is not None:
+                speed_key = self._get_speed_key() or "WindSpeed"
+                return {
+                    speed_key: gear_level,
+                    "WorkMode": Z120_WORKMODE_MAP[PRESET_MODE_MANUAL],
+                }
+        workmode = workmode_value_for_preset(self._product_key, preset_mode)
+        return {"WorkMode": workmode} if workmode is not None else {}
 
     async def async_turn_on(
         self, percentage: int | None = None, preset_mode: str | None = None, **kwargs: Any
     ) -> None:
         props: dict[str, int] = {"PowerSwitch": 1}
         if preset_mode is not None:
-            wm = workmode_value_for_preset(self._product_key, preset_mode)
-            if wm is not None:
-                props["WorkMode"] = wm
+            props.update(self._properties_for_preset(preset_mode))
         if percentage is not None:
             speed = math.ceil(percentage_to_ranged_value(SPEED_RANGE, percentage))
             speed_key = self._get_speed_key() or "WindSpeed"
@@ -214,11 +273,11 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         self._update_local_state(props)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        wm = workmode_value_for_preset(self._product_key, preset_mode)
-        if wm is None:
+        props = self._properties_for_preset(preset_mode)
+        if not props:
             return
-        await self.coordinator.api.set_device_properties(self._iot_id, {"WorkMode": wm})
-        self._update_local_state({"WorkMode": wm})
+        await self.coordinator.api.set_device_properties(self._iot_id, props)
+        self._update_local_state(props)
 
     def _update_local_state(self, values: dict[str, int]) -> None:
         props = self.coordinator.data.get(self._iot_id, {})
