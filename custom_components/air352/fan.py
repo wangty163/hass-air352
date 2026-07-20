@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Any
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature
@@ -21,16 +22,77 @@ SPEED_RANGE = (1, 6)
 PRESET_MODE_AUTO = "auto"
 PRESET_MODE_SLEEP = "sleep"
 PRESET_MODE_MANUAL = "manual"
+PRESET_MODE_SKIN = "skin"
+PRESET_MODE_AIR_DRYING = "air_drying"
 
-PRESET_MODES = [PRESET_MODE_AUTO, PRESET_MODE_SLEEP, PRESET_MODE_MANUAL]
+Z120_PRODUCT_KEY = "a10n269QEvP"
 
-WORKMODE_MAP = {
+FALLBACK_WORKMODE_MAP = {
     PRESET_MODE_AUTO: 1,
-    PRESET_MODE_MANUAL: 2,
     PRESET_MODE_SLEEP: 3,
+    PRESET_MODE_MANUAL: 2,
 }
 
-WORKMODE_REVERSE = {v: k for k, v in WORKMODE_MAP.items()}
+Z120_WORKMODE_MAP = {
+    PRESET_MODE_AUTO: 1,
+    PRESET_MODE_SLEEP: 2,
+    PRESET_MODE_SKIN: 3,
+    PRESET_MODE_MANUAL: 4,
+    PRESET_MODE_AIR_DRYING: 5,
+}
+
+WORKMODE_PROFILES: dict[str, Mapping[str, int]] = {
+    Z120_PRODUCT_KEY: Z120_WORKMODE_MAP,
+}
+
+# Backwards-compatible aliases for callers that imported the old constants.
+PRESET_MODES = list(FALLBACK_WORKMODE_MAP)
+WORKMODE_MAP = FALLBACK_WORKMODE_MAP
+WORKMODE_REVERSE = {value: preset for preset, value in WORKMODE_MAP.items()}
+
+
+def get_workmode_map(product_key: str | None) -> Mapping[str, int]:
+    """Return the device-specific WorkMode map, or the legacy fallback."""
+    return WORKMODE_PROFILES.get(product_key or "", FALLBACK_WORKMODE_MAP)
+
+
+def get_preset_modes(product_key: str | None) -> list[str]:
+    """Return selectable presets for a product (standby is never a preset)."""
+    return list(get_workmode_map(product_key))
+
+
+def workmode_value_for_preset(product_key: str | None, preset_mode: str) -> int | None:
+    """Translate an HA preset to the product's WorkMode value."""
+    return get_workmode_map(product_key).get(preset_mode)
+
+
+def normalize_workmode_value(value: Any) -> int | None:
+    """Normalize integer and integer-string WorkMode values from the cloud."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def preset_for_workmode_value(product_key: str | None, value: Any) -> str | None:
+    """Translate a cloud WorkMode value to an HA preset."""
+    normalized = normalize_workmode_value(value)
+    if normalized is None:
+        return None
+    return next(
+        (
+            preset
+            for preset, workmode in get_workmode_map(product_key).items()
+            if workmode == normalized
+        ),
+        None,
+    )
 
 
 async def async_setup_entry(
@@ -67,6 +129,8 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         self._iot_id = device["iotId"]
         self._attr_unique_id = f"{self._iot_id}_fan"
         info = coordinator.device_infos.get(self._iot_id, {})
+        self._product_key = device.get("productKey") or info.get("productKey")
+        self._attr_preset_modes = get_preset_modes(self._product_key)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._iot_id)},
             "name": device.get("productName", "352 Device"),
@@ -111,21 +175,24 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         val = self._get_prop_value("WorkMode")
         if val is None:
             return None
-        return WORKMODE_REVERSE.get(val)
+        return preset_for_workmode_value(self._product_key, val)
 
     async def async_turn_on(
         self, percentage: int | None = None, preset_mode: str | None = None, **kwargs: Any
     ) -> None:
         props: dict[str, int] = {"PowerSwitch": 1}
         if preset_mode is not None:
-            wm = WORKMODE_MAP.get(preset_mode)
+            wm = workmode_value_for_preset(self._product_key, preset_mode)
             if wm is not None:
                 props["WorkMode"] = wm
         if percentage is not None:
             speed = math.ceil(percentage_to_ranged_value(SPEED_RANGE, percentage))
             speed_key = self._get_speed_key() or "WindSpeed"
             props[speed_key] = speed
-            props.setdefault("WorkMode", WORKMODE_MAP[PRESET_MODE_MANUAL])
+            props.setdefault(
+                "WorkMode",
+                get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
+            )
         await self.coordinator.api.set_device_properties(self._iot_id, props)
         self._update_local_state(props)
 
@@ -139,12 +206,15 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
             return
         speed = math.ceil(percentage_to_ranged_value(SPEED_RANGE, percentage))
         speed_key = self._get_speed_key() or "WindSpeed"
-        props = {speed_key: speed, "WorkMode": WORKMODE_MAP[PRESET_MODE_MANUAL]}
+        props = {
+            speed_key: speed,
+            "WorkMode": get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
+        }
         await self.coordinator.api.set_device_properties(self._iot_id, props)
         self._update_local_state(props)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        wm = WORKMODE_MAP.get(preset_mode)
+        wm = workmode_value_for_preset(self._product_key, preset_mode)
         if wm is None:
             return
         await self.coordinator.api.set_device_properties(self._iot_id, {"WorkMode": wm})

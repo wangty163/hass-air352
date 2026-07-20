@@ -25,5 +25,95 @@
       "already_configured": "This account is already configured",
       "reauth_successful": "Re-authentication successful"
     }
+  },
+  "entity": {
+    "sensor": {
+      "pm25": { "name": "PM2.5" },
+      "pm10": { "name": "PM10" },
+      "airqualitygrade": {
+        "name": "Air quality grade",
+        "state": {
+          "excellent": "Excellent",
+          "medium": "Medium",
+          "poor": "Poor"
+        }
+      },
+      "aal": { "name": "AAL" },
+      "windvalue": { "name": "Air flow" },
+      "tvoc": { "name": "TVOC" },
+      "hcho": { "name": "Formaldehyde" },
+      "co2": { "name": "CO2" },
+      "currenttemperature": { "name": "Temperature" },
+      "relativehumidity": { "name": "Humidity" },
+      "filterlifetimepercent_1": { "name": "Filter 1 life" },
+      "filterlifetimepercent_2": { "name": "Filter 2 life" },
+      "filterlifetimepercent_3": { "name": "Filter 3 life" },
+      "filterlifetimedays_1": { "name": "Filter 1 remaining life" },
+      "filterlifetimedays_2": { "name": "Filter 2 remaining life" },
+      "filterlifetimedays_3": { "name": "Filter 3 remaining life" },
+      "filterlifetimetotal_1": { "name": "Filter 1 total life" },
+      "filterlifetimetotal_2": { "name": "Filter 2 total life" },
+      "filterlifetimetotal_3": { "name": "Filter 3 total life" },
+      "filterfakeerror_1": {
+        "name": "Filter 1 authenticity",
+        "state": { "normal": "Normal", "illegal": "Invalid" }
+      },
+      "filterfakeerror_2": {
+        "name": "Filter 2 authenticity",
+        "state": { "normal": "Normal", "illegal": "Invalid" }
+      },
+      "filterfakeerror_3": {
+        "name": "Filter 3 authenticity",
+        "state": { "normal": "Normal", "illegal": "Invalid" }
+      },
+      "devicemode": {
+        "name": "Device mode",
+        "state": {
+          "standard": "Standard",
+          "super_carbon": "Super carbon"
+        }
+      },
+      "hardwarefirmwareversion": { "name": "Hardware firmware version" },
+      "pm25thresholdon": { "name": "PM2.5 power-on threshold" },
+      "pm25thresholdoff": { "name": "PM2.5 power-off threshold" },
+      "hchothresholdon": { "name": "Formaldehyde power-on threshold" },
+      "hchothresholdoff": { "name": "Formaldehyde power-off threshold" },
+      "tvocthresholdon": { "name": "TVOC power-on threshold" },
+      "tvocthresholdoff": { "name": "TVOC power-off threshold" },
+      "sleepmodesetparam": { "name": "Sleep mode setting parameter" },
+      "voicesettings": { "name": "Voice setting" },
+      "finishedwatertds": { "name": "Output TDS" },
+      "rawwatertds": { "name": "Input TDS" },
+      "watertemperature": { "name": "Water temperature" },
+      "totalpurewater": { "name": "Total pure water" },
+      "wifi_rssi": { "name": "Wi-Fi signal" }
+    },
+    "fan": {
+      "air_purifier": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "auto": "Auto",
+              "sleep": "Sleep",
+              "skin": "Skin",
+              "manual": "Manual",
+              "air_drying": "Air drying"
+            }
+          }
+        }
+      }
+    },
+    "switch": {
+      "powerswitch": { "name": "Power" },
+      "childlockswitch": { "name": "Child lock" },
+      "screenswitch": { "name": "Screen" },
+      "ionsswitch": { "name": "Ionizer" },
+      "smartmodeswitch": { "name": "Smart mode" },
+      "uvledswitch": { "name": "UV LED" },
+      "pciswitch": { "name": "PCI" },
+      "standbysensorswitch": { "name": "Standby sensor" },
+      "microwavesensor": { "name": "Microwave sensor" },
+      "illumination": { "name": "Illumination" }
+    }
   }
 }

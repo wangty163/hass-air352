@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -12,7 +13,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
     CONCENTRATION_PARTS_PER_MILLION,
+    EntityCategory,
     PERCENTAGE,
+    UnitOfTime,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
@@ -33,6 +36,39 @@ from .coordinator import Air352Coordinator
 @dataclass(frozen=True, kw_only=True)
 class Air352SensorDescription(SensorEntityDescription):
     category_keys: tuple[str, ...] = ()
+    enum_value_map: tuple[tuple[int, str], ...] = ()
+    invalid_values: tuple[Any, ...] = ()
+
+
+AIR_QUALITY_GRADE_MAP = (
+    (1, "excellent"),
+    (2, "medium"),
+    (3, "poor"),
+)
+FILTER_FAKE_ERROR_MAP = (
+    (0, "normal"),
+    (1, "illegal"),
+)
+DEVICE_MODE_MAP = (
+    (0, "standard"),
+    (1, "super_carbon"),
+)
+
+
+def _enum_option(value: Any, value_map: tuple[tuple[int, str], ...]) -> str | None:
+    """Translate integer and integer-string TSL enum values."""
+    if isinstance(value, bool):
+        normalized = int(value)
+    elif isinstance(value, int):
+        normalized = value
+    elif isinstance(value, str):
+        try:
+            normalized = int(value.strip())
+        except ValueError:
+            return None
+    else:
+        return None
+    return dict(value_map).get(normalized)
 
 
 SENSOR_DESCRIPTIONS: list[Air352SensorDescription] = [
@@ -44,17 +80,45 @@ SENSOR_DESCRIPTIONS: list[Air352SensorDescription] = [
         category_keys=(DEVICE_TYPE_AIR, DEVICE_TYPE_HUMIDIFIER),
     ),
     Air352SensorDescription(
+        key="PM10", name="PM10",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        device_class=SensorDeviceClass.PM10, state_class=SensorStateClass.MEASUREMENT,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="airQualityGrade", name="Air Quality Grade",
+        device_class=SensorDeviceClass.ENUM,
+        options=[option for _, option in AIR_QUALITY_GRADE_MAP],
+        enum_value_map=AIR_QUALITY_GRADE_MAP,
+        icon="mdi:weather-windy",
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="AAL", name="AAL",
+        state_class=SensorStateClass.MEASUREMENT,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="WindValue", name="Air Flow",
+        native_unit_of_measurement="m³/h",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:fan",
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
         key="TVOC", name="TVOC",
         native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
         state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
+        invalid_values=(65535, "65535"),
     ),
     Air352SensorDescription(
         key="HCHO", name="Formaldehyde",
         native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
+        invalid_values=(65535, "65535"),
     ),
     Air352SensorDescription(
         key="CO2", name="CO2",
@@ -91,6 +155,101 @@ SENSOR_DESCRIPTIONS: list[Air352SensorDescription] = [
         key="FilterLifeTimePercent_3", name="Filter 3 Life",
         native_unit_of_measurement=PERCENTAGE, state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:air-filter",
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    *[
+        Air352SensorDescription(
+            key=f"FilterLifeTimeDays_{index}",
+            name=f"Filter {index} Remaining Life",
+            native_unit_of_measurement=UnitOfTime.HOURS,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:calendar-clock",
+            category_keys=(DEVICE_TYPE_AIR,),
+        )
+        for index in range(1, 4)
+    ],
+    *[
+        Air352SensorDescription(
+            key=f"FilterLifeTimeTotal_{index}",
+            name=f"Filter {index} Total Life",
+            native_unit_of_measurement=UnitOfTime.HOURS,
+            state_class=SensorStateClass.MEASUREMENT,
+            icon="mdi:timer-outline",
+            category_keys=(DEVICE_TYPE_AIR,),
+        )
+        for index in range(1, 4)
+    ],
+    *[
+        Air352SensorDescription(
+            key=f"FilterFakeError_{index}",
+            name=f"Filter {index} Authenticity",
+            device_class=SensorDeviceClass.ENUM,
+            options=[option for _, option in FILTER_FAKE_ERROR_MAP],
+            enum_value_map=FILTER_FAKE_ERROR_MAP,
+            icon="mdi:shield-check-outline",
+            category_keys=(DEVICE_TYPE_AIR,),
+        )
+        for index in range(1, 4)
+    ],
+    Air352SensorDescription(
+        key="DeviceMode", name="Device Mode",
+        device_class=SensorDeviceClass.ENUM,
+        options=[option for _, option in DEVICE_MODE_MAP],
+        enum_value_map=DEVICE_MODE_MAP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="HardwareFirmwareVersion", name="Hardware Firmware Version",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:chip",
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="PM25ThresholdOn", name="PM2.5 Power-on Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="PM25ThresholdOff", name="PM2.5 Power-off Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="HCHOThresholdOn", name="Formaldehyde Power-on Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="HCHOThresholdOff", name="Formaldehyde Power-off Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="TVOCThresholdOn", name="TVOC Power-on Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="TVOCThresholdOff", name="TVOC Power-off Threshold",
+        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="SleepModeSetParam", name="Sleep Mode Setting Parameter",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        category_keys=(DEVICE_TYPE_AIR,),
+    ),
+    Air352SensorDescription(
+        key="voicesettings", name="Voice Setting",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:volume-high",
         category_keys=(DEVICE_TYPE_AIR,),
     ),
     # ── Water purifier sensors ──
@@ -171,8 +330,10 @@ class Air352Sensor(CoordinatorEntity[Air352Coordinator], SensorEntity):
         if prop is None:
             return None
         val = prop.get("value") if isinstance(prop, dict) else prop
-        if val == 65535:
+        if val in self.entity_description.invalid_values:
             return None
+        if self.entity_description.enum_value_map:
+            return _enum_option(val, self.entity_description.enum_value_map)
         return val
 
     @property

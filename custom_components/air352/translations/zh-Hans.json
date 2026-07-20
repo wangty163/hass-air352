@@ -29,6 +29,17 @@
   "entity": {
     "sensor": {
       "pm25": { "name": "PM2.5" },
+      "pm10": { "name": "PM10" },
+      "airqualitygrade": {
+        "name": "空气质量等级",
+        "state": {
+          "excellent": "优",
+          "medium": "中",
+          "poor": "差"
+        }
+      },
+      "aal": { "name": "AAL" },
+      "windvalue": { "name": "实际风量" },
       "tvoc": { "name": "TVOC" },
       "hcho": { "name": "甲醛" },
       "co2": { "name": "二氧化碳" },
@@ -37,6 +48,40 @@
       "filterlifetimepercent_1": { "name": "滤芯1寿命" },
       "filterlifetimepercent_2": { "name": "滤芯2寿命" },
       "filterlifetimepercent_3": { "name": "滤芯3寿命" },
+      "filterlifetimedays_1": { "name": "滤芯1剩余寿命" },
+      "filterlifetimedays_2": { "name": "滤芯2剩余寿命" },
+      "filterlifetimedays_3": { "name": "滤芯3剩余寿命" },
+      "filterlifetimetotal_1": { "name": "滤芯1总寿命" },
+      "filterlifetimetotal_2": { "name": "滤芯2总寿命" },
+      "filterlifetimetotal_3": { "name": "滤芯3总寿命" },
+      "filterfakeerror_1": {
+        "name": "滤芯1真伪",
+        "state": { "normal": "正常", "illegal": "非法" }
+      },
+      "filterfakeerror_2": {
+        "name": "滤芯2真伪",
+        "state": { "normal": "正常", "illegal": "非法" }
+      },
+      "filterfakeerror_3": {
+        "name": "滤芯3真伪",
+        "state": { "normal": "正常", "illegal": "非法" }
+      },
+      "devicemode": {
+        "name": "设备模式",
+        "state": {
+          "standard": "标准款",
+          "super_carbon": "超级碳"
+        }
+      },
+      "hardwarefirmwareversion": { "name": "硬件固件版本" },
+      "pm25thresholdon": { "name": "PM2.5 开机阈值" },
+      "pm25thresholdoff": { "name": "PM2.5 关机阈值" },
+      "hchothresholdon": { "name": "甲醛开机阈值" },
+      "hchothresholdoff": { "name": "甲醛关机阈值" },
+      "tvocthresholdon": { "name": "TVOC 开机阈值" },
+      "tvocthresholdoff": { "name": "TVOC 关机阈值" },
+      "sleepmodesetparam": { "name": "睡眠模式设置参数" },
+      "voicesettings": { "name": "语音设置" },
       "finishedwatertds": { "name": "出水TDS" },
       "rawwatertds": { "name": "进水TDS" },
       "watertemperature": { "name": "水温" },
@@ -50,7 +95,9 @@
             "state": {
               "auto": "自动",
               "sleep": "睡眠",
-              "manual": "手动"
+              "skin": "Skin",
+              "manual": "手动",
+              "air_drying": "风干"
             }
           }
         }
@@ -61,7 +108,12 @@
       "childlockswitch": { "name": "童锁" },
       "screenswitch": { "name": "屏幕" },
       "ionsswitch": { "name": "负离子" },
-      "smartmodeswitch": { "name": "智能模式" }
+      "smartmodeswitch": { "name": "智感模式" },
+      "uvledswitch": { "name": "UV-LED" },
+      "pciswitch": { "name": "PCI 净离子群" },
+      "standbysensorswitch": { "name": "传感器常开" },
+      "microwavesensor": { "name": "微波传感器" },
+      "illumination": { "name": "照明" }
     }
   }
 }
