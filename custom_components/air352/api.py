@@ -15,6 +15,10 @@ from .const import (
     APPID_352, BASE_URL_352, ALI_APP_KEY, ALI_APP_SECRET,
     ALI_DOMAIN, ALI_OA_DOMAIN,
 )
+from .mobile_protocol import (
+    MobileTriple,
+    build_aepauth_auth_info,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -228,9 +232,42 @@ class Air352ApiClient:
         elapsed = time.time() - self._iot_token_ts
         return elapsed < (self._iot_token_expire - 3600)
 
+    @property
+    def iot_token(self) -> str:
+        """Return the current account token without logging or persisting it."""
+        if not self._iot_token:
+            raise Air352AuthError("IoT token is not available")
+        return self._iot_token
+
     async def ensure_authenticated(self) -> None:
         if not self.is_iot_token_valid():
             await self.authenticate()
+
+    async def get_mobile_channel_credentials(
+        self, device_sn: str
+    ) -> MobileTriple:
+        """Create or recover the virtual-device identity used by the App."""
+        auth_info = build_aepauth_auth_info(
+            ALI_APP_KEY,
+            ALI_APP_SECRET,
+            device_sn,
+        )
+        response = await self._ali_gw_request(
+            "/app/aepauth/handle",
+            {"authInfo": auth_info},
+            api_ver="1.0.0",
+        )
+        data = response.get("data", {})
+        try:
+            return MobileTriple(
+                product_key=data["productKey"],
+                device_name=data["deviceName"],
+                device_secret=data["deviceSecret"],
+            )
+        except (KeyError, TypeError) as err:
+            raise Air352AuthError(
+                "Aliyun mobile-channel credentials are incomplete"
+            ) from err
 
     async def get_device_list(self) -> list[dict]:
         await self.ensure_authenticated()

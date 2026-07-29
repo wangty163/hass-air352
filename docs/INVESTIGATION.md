@@ -255,7 +255,7 @@ API 返回的属性值包裹在 Model 对象中：
 
 ## 5. MQTT 实时推送调研
 
-### 已验证可行
+### 设备身份网关方案（不可用）
 
 | 步骤 | 结果 |
 |------|------|
@@ -266,21 +266,42 @@ API 返回的属性值包裹在 Model 对象中：
 | _LivingLink.activation.subdevice.connect | ✅ bizCode 200 |
 | combine/login (网关 topic) | ✅ 200，但触发 427 |
 
-### 已验证不可行
-
-| 步骤 | 结果 | 原因 |
-|------|------|------|
-| combine/login | 427 "device connect in elsewhere" | 设备自己直连 MQTT，会被抢占 |
-| /app/down/thing/properties 推送 | 无消息 | 属性推送走 ACCS 而非 MQTT |
+`combine/login` 返回 427 `device connect in elsewhere`。原因是该方案冒充物理净化器登录，
+会与净化器自己的 MQTT 会话争抢连接；不能用于 HA。这个失败不代表 App 账号通道不可用。
 
 ### MQTT 连接参数
 
 ```
 Broker: {productKey}.iot-as-mqtt.cn-shanghai.aliyuncs.com:1883
-ClientId: {clientId}|securemode=2,signmethod=hmacsha1,timestamp={ts}|
+ClientId: {deviceName}&{productKey}|securemode=2,signmethod=hmacsha1,timestamp={ts}|
 Username: {deviceName}&{productKey}
 Password: HMAC-SHA1(deviceSecret, "clientId{cid}deviceName{dn}productKey{pk}timestamp{ts}")
 ```
+
+### App 账号通道（已实机验证）
+
+2026-07-29 重新按阿里 `public-channel-mobile` SDK 的真实流程验证成功：
+
+1. `/app/aepauth/handle` 使用稳定的 App `deviceSn` 获取独立虚拟设备三元组。
+2. 用该三元组建立 TLS MQTT 连接；这是 App 身份，不是净化器身份，不会触发 427。
+3. 精确订阅以下下行 topic：
+   - `/sys/{appPK}/{appDN}/app/down/account/bind_reply`
+   - `/sys/{appPK}/{appDN}/app/down/thing/properties`
+   - `/sys/{appPK}/{appDN}/app/down/thing/status`
+   - `/sys/{appPK}/{appDN}/app/down/thing/events`
+4. 向 `/sys/{appPK}/{appDN}/app/up/account/bind` 发布当前 `iotToken`，服务端返回
+   `code=200` 后，设备属性通过 `thing/properties` 实时下发。
+
+旧 SDK 会直接订阅 `#`，但当前 broker 对根通配符返回 `Unspecified error`；四个精确 topic
+均返回 `Granted QoS 1`。此前“MQTT 收不到属性”的根因是走了物理设备网关路径并使用了失效的
+订阅方式，不是账号 MQTT 通道本身不可用。
+
+Z120 实机控制往返验证：
+
+| 操作 | 设备确认推送 |
+|------|-------------|
+| 开机 | 418 ms（随后 557 ms 收到稳定运行态） |
+| 关机 | 559 ms |
 
 ### LivingLink 子设备连接协议
 
@@ -319,11 +340,14 @@ Topic: `/sys/{gwPK}/{gwDN}/_thing/service/post`
 - SDK: `com.taobao.accs.ACCSClient`（淘宝闭源 ACCS 客户端）
 - 需要 EMAS 设备注册的 deviceId
 - 链路: 设备上报属性(MQTT) → IoT 平台 → ACCS 推送 → App
-- 结论: **无法用 Python 复刻**
+- Android App 可以使用这条通道，但 HA 无需复刻 ACCS；阿里公开的 App 账号 MQTT 通道能收到
+  同一组 `thing/properties` / `thing/status` / `thing/events` 下行。
 
 ### 实时推送结论
 
-352 App 的实时属性推送走的是 **ACCS（Alibaba Cloud Channel Service）**，基于 SPDY/HTTP2 的私有长连接协议。MQTT 网关模式仅用于设备拓扑管理，不负责属性推送路由。当前方案采用 **10 秒轮询**。
+352 官方 App 的行为是混合模式：REST 获取初始完整快照和下发控制，账号长连接接收实时属性。
+HA 5.0.0 已复刻这条行为：启动时和断线时用 REST 对账，在线时由 App 账号 MQTT 推送驱动；
+10 秒轮询保留为安全兜底。物理设备 `combine/login` 网关方案仍禁止使用。
 
 ---
 
@@ -406,7 +430,14 @@ HCHO 和 TVOC 在设备刚开机预热时返回 `0xFFFF`(65535)。在 sensor 实
 
 ### 开关状态闪烁
 
-切换开关后，状态会短暂回退到旧值，等下次轮询才更新。通过实现乐观状态更新解决：发送命令后立即更新本地 coordinator 数据并调用 `async_write_ha_state()`。
+旧实现只有乐观更新：切换后先显示目标值，但并发中的 REST 旧快照会在约 1 秒后把状态回退，
+下一次 10 秒轮询才恢复。5.0.0 改为与官方 App 一致的“乐观显示 + 设备推送确认”：
+
+- 点击后立即显示目标状态；
+- 命令待确认期间拒绝相反的旧轮询值；
+- 按每个属性的云端 `time` 合并，旧时间戳永远不能覆盖新状态；
+- 通常约 0.4～0.6 秒收到设备 MQTT 确认；
+- 15 秒未确认才解除保护并接受 REST 实际状态，避免设备拒绝命令时永久显示错误值。
 
 ---
 

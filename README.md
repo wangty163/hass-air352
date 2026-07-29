@@ -31,7 +31,7 @@ Home Assistant 自定义集成，支持 [352](https://www.352air.com/) 空气净
 
 设置 → 设备与服务 → 添加集成 → 搜索 "352 Air" → 输入 352Life App 的手机号和密码。
 
-## Z120 控制实体（4.0.0）
+## Z120 控制实体（4.0.0+）
 
 Z120 的控制已拆分为三个职责单一的实体：
 
@@ -62,13 +62,14 @@ PYTHONPATH=. python3 tests/verify_real_ha_contract.py -v
 
 1. 通过 352 API 登录获取 access_token
 2. 通过阿里云 IoT 生活物联网平台（飞燕）认证获取 iotToken
-3. 通过阿里云 IoT API Gateway 获取设备列表和属性
-4. 通过 `/thing/properties/set` 下发设备控制指令
-5. 每 120 秒轮询一次设备状态
+3. 通过阿里云 IoT API Gateway 获取设备列表和初始属性
+4. 建立官方 App 同款账号 MQTT 长连接，接收属性、在线状态和事件推送
+5. 通过 `/thing/properties/set` 下发控制；HA 立即显示目标值，约 0.4～0.6 秒后由设备推送确认
+6. 保留 10 秒 REST 轮询作为断线和漏消息时的安全对账，并按属性时间戳拒绝旧快照回滚状态
 
 ## 依赖
 
-无外部 Python 依赖，仅使用 Home Assistant 内置的 `aiohttp` 和 Python 标准库。
+使用 Home Assistant 内置的 `aiohttp`，以及 `paho-mqtt==2.1.0` 维护官方账号长连接。
 
 ## License
 

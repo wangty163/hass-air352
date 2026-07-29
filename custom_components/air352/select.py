@@ -110,16 +110,6 @@ class Air352Select(CoordinatorEntity[Air352Coordinator], SelectEntity):
             return "windspeed"
         return None
 
-    def _update_local_state(self, values: dict[str, int]) -> None:
-        props = self._properties()
-        for key, value in values.items():
-            prop = props.get(key)
-            if isinstance(prop, dict):
-                prop["value"] = value
-            else:
-                props[key] = {"value": value}
-        self.coordinator.async_set_updated_data(self.coordinator.data)
-
 class Air352WorkModeSelect(Air352Select):
     _attr_translation_key = "work_mode"
     _attr_icon = "mdi:air-purifier"
@@ -141,8 +131,12 @@ class Air352WorkModeSelect(Air352Select):
         if option not in Z120_WORKMODE_MAP:
             raise ValueError(f"Unsupported work mode: {option}")
         values = {"WorkMode": Z120_WORKMODE_MAP[option]}
-        await async_set_device_properties(self.coordinator, self._iot_id, values)
-        self._update_local_state({**values, "PowerSwitch": 1})
+        await async_set_device_properties(
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values={**values, "PowerSwitch": 1},
+        )
 
     @property
     def available(self) -> bool:
@@ -183,8 +177,12 @@ class Air352ManualGearSelect(Air352Select):
             speed_key: level,
             "WorkMode": Z120_WORKMODE_MAP[PRESET_MODE_MANUAL],
         }
-        await async_set_device_properties(self.coordinator, self._iot_id, values)
-        self._update_local_state({**values, "PowerSwitch": 1})
+        await async_set_device_properties(
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values={**values, "PowerSwitch": 1},
+        )
 
     @property
     def available(self) -> bool:

@@ -4,7 +4,7 @@
   "codeowners": ["@geminiwen"],
   "config_flow": true,
   "documentation": "https://github.com/wangty163/hass-air352",
-  "iot_class": "cloud_polling",
-  "version": "4.0.0",
-  "requirements": []
+  "iot_class": "cloud_push",
+  "version": "5.0.0",
+  "requirements": ["paho-mqtt==2.1.0"]
 }

@@ -8,21 +8,31 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import Air352ApiClient, Air352AuthError, Air352ConnectionError, Air352ApiError
 from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
+from .mobile_channel import Air352MobileChannel
+from .state import PropertyState
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class Air352Coordinator(DataUpdateCoordinator):
 
-    def __init__(self, hass: HomeAssistant, api: Air352ApiClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api: Air352ApiClient,
+        username: str,
+    ) -> None:
         super().__init__(
             hass, _LOGGER,
             name=DOMAIN,
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.api = api
+        self._username = username
         self.devices: list[dict] = []
         self.device_infos: dict[str, dict] = {}
+        self._property_state = PropertyState()
+        self._mobile_channel: Air352MobileChannel | None = None
 
     async def async_setup(self) -> None:
         try:
@@ -38,6 +48,48 @@ class Air352Coordinator(DataUpdateCoordinator):
         except (Air352ConnectionError, Air352ApiError) as e:
             raise UpdateFailed(str(e)) from e
 
+    async def async_start_push(self) -> None:
+        """Start the same account-bound push channel used by the official App."""
+        channel = Air352MobileChannel(
+            self.hass,
+            self.api,
+            self._username,
+            self._async_handle_mobile_message,
+            self._async_handle_mobile_state,
+        )
+        self._mobile_channel = channel
+        try:
+            await channel.async_start()
+        except Exception:
+            _LOGGER.exception(
+                "Failed to start 352 official-app push channel; "
+                "REST polling remains active"
+            )
+
+    async def async_shutdown(self) -> None:
+        """Stop background network resources."""
+        if self._mobile_channel is not None:
+            await self._mobile_channel.async_stop()
+            self._mobile_channel = None
+
+    async def async_set_device_properties(
+        self,
+        iot_id: str,
+        values: dict[str, int],
+        *,
+        optimistic_values: dict[str, int] | None = None,
+    ) -> None:
+        """Optimistically send a command and hold it until device confirmation."""
+        optimistic = optimistic_values or values
+        token = self._property_state.begin_command(iot_id, optimistic)
+        self.async_set_updated_data(self._property_state.snapshot())
+        try:
+            await self.api.set_device_properties(iot_id, values)
+        except Exception:
+            self._property_state.rollback_command(token)
+            self.async_set_updated_data(self._property_state.snapshot())
+            raise
+
     async def _async_update_data(self) -> dict[str, dict]:
         try:
             tasks = [self.api.get_device_properties(d["iotId"]) for d in self.devices]
@@ -47,12 +99,53 @@ class Air352Coordinator(DataUpdateCoordinator):
         except (Air352ConnectionError, Air352ApiError) as e:
             raise UpdateFailed(str(e)) from e
 
-        data = {}
         for dev, result in zip(self.devices, results):
             iot_id = dev["iotId"]
             if isinstance(result, Exception):
                 _LOGGER.warning("Failed to get properties for %s: %s", iot_id, result)
-                data[iot_id] = {}
+                self._property_state.data.setdefault(iot_id, {})
             else:
-                data[iot_id] = result
-        return data
+                self._property_state.merge_device(
+                    iot_id,
+                    result,
+                    source="rest",
+                )
+        return self._property_state.snapshot()
+
+    async def _async_handle_mobile_message(
+        self,
+        path: str,
+        payload: dict,
+    ) -> None:
+        """Apply an official mobile-channel downstream message."""
+        if path == "thing/properties":
+            params = payload.get("params", {})
+            iot_id = params.get("iotId")
+            items = params.get("items")
+            if (
+                isinstance(iot_id, str)
+                and isinstance(items, dict)
+                and any(device.get("iotId") == iot_id for device in self.devices)
+            ):
+                if self._property_state.merge_device(
+                    iot_id,
+                    items,
+                    source="push",
+                ):
+                    self.async_set_updated_data(
+                        self._property_state.snapshot()
+                    )
+            return
+
+        if path in {"thing/status", "thing/events"}:
+            await self.async_request_refresh()
+
+    async def _async_handle_mobile_state(self, connected: bool) -> None:
+        """Reconcile missed changes whenever the push connection changes."""
+        if connected:
+            _LOGGER.debug("352 push channel bound; reconciling full state")
+        else:
+            _LOGGER.warning(
+                "352 push channel unavailable; using REST polling"
+            )
+        await self.async_request_refresh()

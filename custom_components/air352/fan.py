@@ -264,13 +264,11 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
                 get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
             )
         await async_set_device_properties(self.coordinator, self._iot_id, props)
-        self._update_local_state(props)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await async_set_device_properties(
             self.coordinator, self._iot_id, {"PowerSwitch": 0}
         )
-        self._update_local_state({"PowerSwitch": 0})
 
     async def async_set_percentage(self, percentage: int) -> None:
         if percentage == 0:
@@ -283,24 +281,12 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
             "WorkMode": get_workmode_map(self._product_key)[PRESET_MODE_MANUAL],
         }
         await async_set_device_properties(self.coordinator, self._iot_id, props)
-        self._update_local_state(props)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         props = self._properties_for_preset(preset_mode)
         if not props:
             return
         await async_set_device_properties(self.coordinator, self._iot_id, props)
-        self._update_local_state(props)
-
-    def _update_local_state(self, values: dict[str, int]) -> None:
-        props = self.coordinator.data.get(self._iot_id, {})
-        for key, value in values.items():
-            prop = props.get(key)
-            if isinstance(prop, dict):
-                prop["value"] = value
-            else:
-                props[key] = {"value": value}
-        self.coordinator.async_set_updated_data(self.coordinator.data)
 
     @property
     def available(self) -> bool:
