@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -7,7 +8,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import Air352ApiClient, Air352AuthError, Air352ConnectionError, Air352ApiError
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL
+from .const import (
+    ACTIVE_PROPERTY_REFRESH_INTERVAL,
+    ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    Z120_PRODUCT_KEY,
+)
 from .mobile_channel import Air352MobileChannel
 from .state import PropertyState
 
@@ -33,6 +40,8 @@ class Air352Coordinator(DataUpdateCoordinator):
         self.device_infos: dict[str, dict] = {}
         self._property_state = PropertyState()
         self._mobile_channel: Air352MobileChannel | None = None
+        self._last_active_refresh: dict[str, float] = {}
+        self._monotonic = time.monotonic
 
     async def async_setup(self) -> None:
         try:
@@ -92,6 +101,7 @@ class Air352Coordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, dict]:
         try:
+            await self._async_request_active_reports()
             tasks = [self.api.get_device_properties(d["iotId"]) for d in self.devices]
             results = await asyncio.gather(*tasks, return_exceptions=True)
         except Air352AuthError as e:
@@ -111,6 +121,50 @@ class Air352Coordinator(DataUpdateCoordinator):
                     source="rest",
                 )
         return self._property_state.snapshot()
+
+    async def _async_request_active_reports(self) -> None:
+        """Periodically trigger the Z120 full report used by the official App."""
+        now = self._monotonic()
+        due_devices = []
+        for device in self.devices:
+            if device.get("productKey") != Z120_PRODUCT_KEY:
+                continue
+            iot_id = device["iotId"]
+            last_refresh = self._last_active_refresh.get(iot_id)
+            if (
+                last_refresh is not None
+                and now - last_refresh < ACTIVE_PROPERTY_REFRESH_INTERVAL
+            ):
+                continue
+            # Record the attempt before sending so a failing cloud command does
+            # not turn the normal 10-second reconciliation into a retry storm.
+            self._last_active_refresh[iot_id] = now
+            due_devices.append(iot_id)
+
+        if not due_devices:
+            return
+
+        results = await asyncio.gather(
+            *(
+                self.api.request_z120_property_report(iot_id)
+                for iot_id in due_devices
+            ),
+            return_exceptions=True,
+        )
+        report_requested = False
+        for iot_id, result in zip(due_devices, results):
+            if isinstance(result, Exception):
+                _LOGGER.warning(
+                    "Failed to request active Z120 property report for %s: %s; "
+                    "using the latest cloud snapshot",
+                    iot_id,
+                    result,
+                )
+            else:
+                report_requested = True
+
+        if report_requested:
+            await asyncio.sleep(ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS)
 
     async def _async_handle_mobile_message(
         self,

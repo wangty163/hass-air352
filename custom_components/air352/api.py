@@ -13,7 +13,7 @@ import aiohttp
 
 from .const import (
     APPID_352, BASE_URL_352, ALI_APP_KEY, ALI_APP_SECRET,
-    ALI_DOMAIN, ALI_OA_DOMAIN,
+    ALI_DOMAIN, ALI_OA_DOMAIN, Z120_REFRESH_PROPERTY, Z120_REFRESH_VALUE,
 )
 from .mobile_protocol import (
     MobileTriple,
@@ -294,6 +294,13 @@ class Air352ApiClient:
             "/thing/properties/set",
             {"iotId": iot_id, "items": items},
             iot_token=self._iot_token,
+        )
+
+    async def request_z120_property_report(self, iot_id: str) -> None:
+        """Ask a Z120 to report all live properties, as the official App does."""
+        await self.set_device_properties(
+            iot_id,
+            {Z120_REFRESH_PROPERTY: Z120_REFRESH_VALUE},
         )
 
     async def get_device_info(self, iot_id: str) -> dict:
