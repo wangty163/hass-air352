@@ -14,6 +14,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     Z120_PRODUCT_KEY,
+    resolve_product_key,
 )
 from .mobile_channel import Air352MobileChannel
 from .state import PropertyState
@@ -127,9 +128,10 @@ class Air352Coordinator(DataUpdateCoordinator):
         now = self._monotonic()
         due_devices = []
         for device in self.devices:
-            if device.get("productKey") != Z120_PRODUCT_KEY:
-                continue
             iot_id = device["iotId"]
+            info = self.device_infos.get(iot_id, {})
+            if resolve_product_key(device, info) != Z120_PRODUCT_KEY:
+                continue
             last_refresh = self._last_active_refresh.get(iot_id)
             if (
                 last_refresh is not None

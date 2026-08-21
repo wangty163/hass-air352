@@ -28,7 +28,9 @@ from .const import (
     DEVICE_TYPE_AIR,
     DEVICE_TYPE_PURIFIER,
     DEVICE_TYPE_HUMIDIFIER,
+    is_invalid_sensor_value,
     normalize_device_category,
+    resolve_product_key,
 )
 from .coordinator import Air352Coordinator
 
@@ -314,6 +316,8 @@ class Air352Sensor(CoordinatorEntity[Air352Coordinator], SensorEntity):
         self._attr_unique_id = f"{self._iot_id}_{description.key}"
         self._attr_translation_key = description.key.lower()
         info = coordinator.device_infos.get(self._iot_id, {})
+        self._product_key = resolve_product_key(device, info)
+        self._last_valid_value: Any = None
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._iot_id)},
             "name": device.get("productName", "352 Device"),
@@ -328,13 +332,37 @@ class Air352Sensor(CoordinatorEntity[Air352Coordinator], SensorEntity):
         props = self.coordinator.data.get(self._iot_id, {})
         prop = props.get(self.entity_description.key)
         if prop is None:
-            return None
+            return self._last_valid_value
         val = prop.get("value") if isinstance(prop, dict) else prop
-        if val in self.entity_description.invalid_values:
-            return None
+
+        if self.entity_description.key == "airQualityGrade":
+            for source_key in ("PM25", "PM10", "AAL"):
+                source_prop = props.get(source_key)
+                source_value = (
+                    source_prop.get("value")
+                    if isinstance(source_prop, dict)
+                    else source_prop
+                )
+                if is_invalid_sensor_value(
+                    source_key,
+                    source_value,
+                    self._product_key,
+                ):
+                    return self._last_valid_value
+
+        if val in self.entity_description.invalid_values or is_invalid_sensor_value(
+            self.entity_description.key,
+            val,
+            self._product_key,
+        ):
+            return self._last_valid_value
         if self.entity_description.enum_value_map:
-            return _enum_option(val, self.entity_description.enum_value_map)
-        return val
+            value = _enum_option(val, self.entity_description.enum_value_map)
+        else:
+            value = val
+        if value is not None:
+            self._last_valid_value = value
+        return self._last_valid_value
 
     @property
     def available(self) -> bool:

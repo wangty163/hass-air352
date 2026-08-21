@@ -75,6 +75,17 @@ class FanContractTests(unittest.TestCase):
             getattr(legacy_entity, "_attr_entity_registry_enabled_default", True)
         )
 
+    def test_z120_product_name_uses_safe_mapping_for_unrecognized_product_key(self):
+        entity, _ = make_fan(
+            fan_module,
+            product_key="regional-z120-product",
+            product_name="352@Z120@空气消毒机",
+        )
+
+        self.assertFalse(entity._attr_entity_registry_enabled_default)
+        self.assertFalse(entity._attr_supported_features & FanEntityFeature.SET_SPEED)
+        self.assertEqual(entity.preset_mode, "gear_1")
+
     def test_power_percentage_and_availability_state(self):
         entity, coordinator = make_fan(fan_module)
         self.assertTrue(entity.is_on)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import runpy
 import sys
 import types
 from enum import IntFlag
@@ -120,6 +121,10 @@ def load_fan_module():
     const.DEVICE_TYPE_AIR = "AirPurifier"
     const.Z120_PRODUCT_KEY = "a10n269QEvP"
     const.normalize_device_category = lambda value: value
+    const_values = runpy.run_path(
+        str(REPO_ROOT / "custom_components" / "air352" / "const.py")
+    )
+    setattr(const, "resolve_product_key", const_values["resolve_product_key"])
     sys.modules["custom_components.air352.const"] = const
 
     coordinator = types.ModuleType("custom_components.air352.coordinator")
@@ -130,7 +135,12 @@ def load_fan_module():
 
 
 class FakeCoordinator:
-    def __init__(self, properties, product_key="a10n269QEvP") -> None:
+    def __init__(
+        self,
+        properties,
+        product_key: str | None = "a10n269QEvP",
+        product_name: str = "352 purifier",
+    ) -> None:
         self.data = {"iot-1": properties}
         self.device_infos = {
             "iot-1": {
@@ -142,7 +152,7 @@ class FakeCoordinator:
             {
                 "iotId": "iot-1",
                 "productKey": product_key,
-                "productName": "352 purifier",
+                "productName": product_name,
                 "categoryKey": "AirPurifier",
             }
         ]
@@ -151,18 +161,23 @@ class FakeCoordinator:
         self.last_update_success = True
 
 
-def make_fan(module, properties=None, product_key="a10n269QEvP"):
+def make_fan(
+    module,
+    properties=None,
+    product_key: str | None = "a10n269QEvP",
+    product_name: str = "352 purifier",
+):
     if properties is None:
         properties = {
             "PowerSwitch": {"value": 1},
             "WorkMode": {"value": 4},
             "WindSpeed": {"value": 1},
         }
-    coordinator = FakeCoordinator(properties, product_key)
+    coordinator = FakeCoordinator(properties, product_key, product_name)
     device = {
         "iotId": "iot-1",
         "productKey": product_key,
-        "productName": "352 purifier",
+        "productName": product_name,
     }
     return module.Air352Fan(coordinator, device), coordinator
 
