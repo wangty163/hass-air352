@@ -20,6 +20,7 @@ from .const import (
     MANUFACTURER,
     Z120_PRODUCT_KEY,
     normalize_device_category,
+    resolve_product_key,
 )
 from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
@@ -158,7 +159,7 @@ async def async_setup_entry(
             continue
         iot_id = device["iotId"]
         info = coordinator.device_infos.get(iot_id, {})
-        product_key = device.get("productKey") or info.get("productKey")
+        product_key = resolve_product_key(device, info)
         props = coordinator.data.get(iot_id, {}) if coordinator.data else {}
         if product_key == Z120_PRODUCT_KEY or "PowerSwitch" in props:
             entities.append(Air352Fan(coordinator, device))
@@ -183,7 +184,7 @@ class Air352Fan(CoordinatorEntity[Air352Coordinator], FanEntity):
         self._iot_id = device["iotId"]
         self._attr_unique_id = f"{self._iot_id}_fan"
         info = coordinator.device_infos.get(self._iot_id, {})
-        self._product_key = device.get("productKey") or info.get("productKey")
+        self._product_key = resolve_product_key(device, info)
         self._attr_entity_registry_enabled_default = (
             self._product_key != Z120_PRODUCT_KEY
         )
