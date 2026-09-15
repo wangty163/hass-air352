@@ -40,6 +40,10 @@ class Air352SensorDescription(SensorEntityDescription):
     invalid_values: tuple[Any, ...] = ()
 
 
+# 0xFFFF 是固件在传感器尚未就绪（例如上电预热）时回报的哨兵值，
+# 并非真实读数。上报给 HA 会污染历史曲线和统计，应当按"无数据"处理。
+INVALID_SENSOR_VALUES: tuple[Any, ...] = (65535, "65535")
+
 AIR_QUALITY_GRADE_MAP = (
     (1, "excellent"),
     (2, "medium"),
@@ -78,12 +82,14 @@ SENSOR_DESCRIPTIONS: list[Air352SensorDescription] = [
         native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM25, state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR, DEVICE_TYPE_HUMIDIFIER),
+        invalid_values=INVALID_SENSOR_VALUES,
     ),
     Air352SensorDescription(
         key="PM10", name="PM10",
         native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         device_class=SensorDeviceClass.PM10, state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
+        invalid_values=INVALID_SENSOR_VALUES,
     ),
     Air352SensorDescription(
         key="airQualityGrade", name="Air Quality Grade",
@@ -111,20 +117,21 @@ SENSOR_DESCRIPTIONS: list[Air352SensorDescription] = [
         device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
         state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
-        invalid_values=(65535, "65535"),
+        invalid_values=INVALID_SENSOR_VALUES,
     ),
     Air352SensorDescription(
         key="HCHO", name="Formaldehyde",
         native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
         state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
-        invalid_values=(65535, "65535"),
+        invalid_values=INVALID_SENSOR_VALUES,
     ),
     Air352SensorDescription(
         key="CO2", name="CO2",
         native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
         device_class=SensorDeviceClass.CO2, state_class=SensorStateClass.MEASUREMENT,
         category_keys=(DEVICE_TYPE_AIR,),
+        invalid_values=INVALID_SENSOR_VALUES,
     ),
     Air352SensorDescription(
         key="CurrentTemperature", name="Temperature",
