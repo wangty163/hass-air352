@@ -82,6 +82,81 @@ class Z120PowerSwitchTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+    async def test_z120_microwave_sensor_sends_composite_settings_payload(self) -> None:
+        coordinator = FakeCoordinator(
+            {
+                "StandbySensorSwitch": {"value": 1},
+                "SmartModeSwitch": {"value": 0},
+                "MicrowaveSensor": {"value": 1},
+                "PM25ThresholdOn": {"value": 35},
+                "PM25ThresholdOff": {"value": 5},
+                "HCHOThresholdOn": {"value": 80},
+                "HCHOThresholdOff": {"value": 30},
+                "TVOCThresholdOn": {"value": 600},
+                "TVOCThresholdOff": {"value": 300},
+            },
+            product_key=Z120_PRODUCT_KEY,
+        )
+        entities = await setup_entities(self.module, coordinator)
+        microwave = entity_by_unique_id(entities, "iot-1_MicrowaveSensor")
+
+        await microwave.async_turn_off()
+
+        coordinator.api.set_device_properties.assert_awaited_once_with(
+            "iot-1",
+            {
+                "StandbySensorSwitch": 1,
+                "SmartModeSwitch": 0,
+                "MicrowaveSensor": 0,
+                "PM25ThresholdOn": 35,
+                "PM25ThresholdOff": 5,
+                "HCHOThresholdOn": 80,
+                "HCHOThresholdOff": 30,
+                "TVOCThresholdOn": 600,
+                "TVOCThresholdOff": 300,
+            },
+        )
+        self.assertFalse(microwave.is_on)
+
+    async def test_z120_smart_mode_turn_on_enables_standby_sensor_in_composite_payload(
+        self,
+    ) -> None:
+        coordinator = FakeCoordinator(
+            {
+                "StandbySensorSwitch": {"value": 0},
+                "SmartModeSwitch": {"value": 0},
+                "MicrowaveSensor": {"value": 1},
+                "PM25ThresholdOn": {"value": 35},
+                "PM25ThresholdOff": {"value": 5},
+                "HCHOThresholdOn": {"value": 80},
+                "HCHOThresholdOff": {"value": 30},
+                "TVOCThresholdOn": {"value": 600},
+                "TVOCThresholdOff": {"value": 300},
+            },
+        )
+        entities = await setup_entities(self.module, coordinator)
+        smart_mode = entity_by_unique_id(entities, "iot-1_SmartModeSwitch")
+        standby = entity_by_unique_id(entities, "iot-1_StandbySensorSwitch")
+
+        await smart_mode.async_turn_on()
+
+        coordinator.api.set_device_properties.assert_awaited_once_with(
+            "iot-1",
+            {
+                "StandbySensorSwitch": 1,
+                "SmartModeSwitch": 1,
+                "MicrowaveSensor": 1,
+                "PM25ThresholdOn": 35,
+                "PM25ThresholdOff": 5,
+                "HCHOThresholdOn": 80,
+                "HCHOThresholdOff": 30,
+                "TVOCThresholdOn": 600,
+                "TVOCThresholdOff": 300,
+            },
+        )
+        self.assertTrue(smart_mode.is_on)
+        self.assertTrue(standby.is_on)
+
 class Z120SelectSetupTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.module = load_platform_module("select")

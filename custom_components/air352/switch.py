@@ -15,12 +15,40 @@ from .const import (
     DEVICE_TYPE_AIR,
     DEVICE_TYPE_PURIFIER,
     DEVICE_TYPE_HUMIDIFIER,
+    Z120_COMPOSITE_SETTING_SWITCHES,
     Z120_PRODUCT_KEY,
     normalize_device_category,
 )
 from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
 
+
+Z120_COMPOSITE_SETTING_DEFAULTS: dict[str, int] = {
+    "StandbySensorSwitch": 0,
+    "SmartModeSwitch": 0,
+    "MicrowaveSensor": 0,
+    "PM25ThresholdOn": 65535,
+    "PM25ThresholdOff": 65535,
+    "HCHOThresholdOn": 65535,
+    "HCHOThresholdOff": 65535,
+    "TVOCThresholdOn": 65535,
+    "TVOCThresholdOff": 65535,
+}
+
+
+def _extract_int_property(props: dict[str, Any], key: str, default: int) -> int:
+    prop = props.get(key)
+    raw = prop.get("value") if isinstance(prop, dict) else prop
+    if isinstance(raw, bool):
+        return int(raw)
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            return default
+    return default
 
 @dataclass(frozen=True, kw_only=True)
 class Air352SwitchDescription(SwitchEntityDescription):
@@ -115,13 +143,13 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         self._attr_unique_id = f"{self._iot_id}_{description.key}"
         self._attr_translation_key = description.key.lower()
         info = coordinator.device_infos.get(self._iot_id, {})
+        self._product_key = device.get("productKey") or info.get("productKey")
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._iot_id)},
             "name": device.get("productName", "352 Device"),
             "manufacturer": MANUFACTURER,
             "model": info.get("firmwareVersion", device.get("productModel", "")),
         }
-
     @property
     def is_on(self) -> bool | None:
         props = self.coordinator.data.get(self._iot_id, {})
@@ -131,14 +159,45 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         val = prop.get("value") if isinstance(prop, dict) else prop
         return bool(val)
 
+    def _build_command_payload(
+        self, target: int
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        key = self.entity_description.key
+        if (
+            self._product_key != Z120_PRODUCT_KEY
+            or key not in Z120_COMPOSITE_SETTING_SWITCHES
+        ):
+            payload = {key: target}
+            return payload, payload
+
+        props = (self.coordinator.data or {}).get(self._iot_id, {})
+        values = {
+            setting_key: _extract_int_property(props, setting_key, default)
+            for setting_key, default in Z120_COMPOSITE_SETTING_DEFAULTS.items()
+        }
+        values[key] = target
+        optimistic_values = {key: target}
+        if key == "SmartModeSwitch" and target == 1:
+            values["StandbySensorSwitch"] = 1
+            optimistic_values["StandbySensorSwitch"] = 1
+        return values, optimistic_values
+
     async def async_turn_on(self, **kwargs: Any) -> None:
+        values, optimistic_values = self._build_command_payload(1)
         await async_set_device_properties(
-            self.coordinator, self._iot_id, {self.entity_description.key: 1}
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values=optimistic_values,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        values, optimistic_values = self._build_command_payload(0)
         await async_set_device_properties(
-            self.coordinator, self._iot_id, {self.entity_description.key: 0}
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values=optimistic_values,
         )
 
     @property

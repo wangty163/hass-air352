@@ -13,6 +13,7 @@ from .const import (
     ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    Z120_COMPOSITE_SETTING_SWITCHES,
     Z120_PRODUCT_KEY,
 )
 from .mobile_channel import Air352MobileChannel
@@ -101,6 +102,24 @@ class Air352Coordinator(DataUpdateCoordinator):
             self.async_set_updated_data(self._property_state.snapshot())
             raise
 
+        if any(key in Z120_COMPOSITE_SETTING_SWITCHES for key in optimistic):
+            await self._async_request_z120_settings_report(iot_id)
+
+    async def _async_request_z120_settings_report(self, iot_id: str) -> None:
+        """Request a Z120 settings report after updating composite settings."""
+        requester = getattr(self.api, "request_z120_settings_report", None)
+        if requester is None:
+            return
+        await asyncio.sleep(0.5)
+        try:
+            await requester(iot_id)
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to request Z120 settings report for %s: %s",
+                iot_id,
+                err,
+            )
+
     async def _async_update_data(self) -> dict[str, dict]:
         try:
             await self._async_request_active_reports()
@@ -169,6 +188,22 @@ class Air352Coordinator(DataUpdateCoordinator):
             else:
                 report_requested = True
 
+
+        settings_requester = getattr(self.api, "request_z120_settings_report", None)
+        if settings_requester is not None:
+            settings_results = await asyncio.gather(
+                *(settings_requester(iot_id) for iot_id in due_devices),
+                return_exceptions=True,
+            )
+            for iot_id, result in zip(due_devices, settings_results):
+                if isinstance(result, Exception):
+                    _LOGGER.debug(
+                        "Failed to request active Z120 settings report for %s: %s",
+                        iot_id,
+                        result,
+                    )
+                else:
+                    report_requested = True
         if report_requested:
             await asyncio.sleep(ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS)
 

@@ -5,9 +5,10 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.core import callback
 
 from .api import Air352ApiClient, Air352AuthError, Air352ConnectionError
-from .const import DOMAIN
+from .const import CONF_USER_AGENT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -15,12 +16,22 @@ _LOGGER = logging.getLogger(__name__)
 class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return Air352OptionsFlow()
+
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input is not None:
             session = aiohttp.ClientSession()
             try:
-                api = Air352ApiClient(session, user_input[CONF_USERNAME], user_input[CONF_PASSWORD])
+                api = Air352ApiClient(
+                    session,
+                    user_input[CONF_USERNAME],
+                    user_input[CONF_PASSWORD],
+                    user_agent=user_input.get(CONF_USER_AGENT),
+                )
                 await api.authenticate()
                 devices = await api.get_device_list()
             except Air352AuthError:
@@ -41,6 +52,7 @@ class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_USERNAME): str,
                 vol.Required(CONF_PASSWORD): str,
+                vol.Optional(CONF_USER_AGENT, default=""): str,
             }),
             errors=errors,
         )
@@ -54,7 +66,16 @@ class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
             session = aiohttp.ClientSession()
             try:
-                api = Air352ApiClient(session, entry.data[CONF_USERNAME], user_input[CONF_PASSWORD])
+                user_agent = entry.options.get(
+                    CONF_USER_AGENT,
+                    entry.data.get(CONF_USER_AGENT),
+                )
+                api = Air352ApiClient(
+                    session,
+                    entry.data[CONF_USERNAME],
+                    user_input[CONF_PASSWORD],
+                    user_agent=user_agent,
+                )
                 await api.authenticate()
             except Air352AuthError:
                 errors["base"] = "invalid_auth"
@@ -73,4 +94,21 @@ class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reauth_confirm",
             data_schema=vol.Schema({vol.Required(CONF_PASSWORD): str}),
             errors=errors,
+        )
+
+
+class Air352OptionsFlow(config_entries.OptionsFlow):
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current_ua = self.config_entry.options.get(
+            CONF_USER_AGENT,
+            self.config_entry.data.get(CONF_USER_AGENT, ""),
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema({
+                vol.Optional(CONF_USER_AGENT, default=current_ua or ""): str,
+            }),
         )

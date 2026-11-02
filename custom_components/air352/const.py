@@ -16,6 +16,7 @@ ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS = 2
 CONF_IOT_TOKEN = "iot_token"
 CONF_IOT_REFRESH_TOKEN = "iot_refresh_token"
 CONF_IOT_TOKEN_EXPIRE = "iot_token_expire"
+CONF_USER_AGENT = "user_agent"
 
 DEVICE_TYPE_AIR = "AirPurifier"
 DEVICE_TYPE_HUMIDIFIER = "Humidifier"
@@ -25,6 +26,15 @@ Z120_PRODUCT_KEY = "a10n269QEvP"
 Z120_REFRESH_PROPERTY = "ResearchAllProperty"
 Z120_REFRESH_VALUE = "1"
 
+Z120_SETTINGS_REFRESH_PROPERTY = "SetResearchAll"
+Z120_SETTINGS_REFRESH_VALUE = 1
+Z120_COMPOSITE_SETTING_SWITCHES = frozenset(
+    {
+        "StandbySensorSwitch",
+        "SmartModeSwitch",
+        "MicrowaveSensor",
+    }
+)
 CATEGORY_KEY_ALIASES = {
     DEVICE_TYPE_AIR.lower(): DEVICE_TYPE_AIR,
     DEVICE_TYPE_HUMIDIFIER.lower(): DEVICE_TYPE_HUMIDIFIER,
