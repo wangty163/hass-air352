@@ -17,6 +17,7 @@ from .const import (
     DEVICE_TYPE_HUMIDIFIER,
     Z120_PRODUCT_KEY,
     normalize_device_category,
+    resolve_product_key,
 )
 from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
@@ -91,7 +92,7 @@ async def async_setup_entry(
         iot_id = device["iotId"]
         props = coordinator.data.get(iot_id, {}) if coordinator.data else {}
         info = coordinator.device_infos.get(iot_id, {})
-        product_key = device.get("productKey") or info.get("productKey")
+        product_key = resolve_product_key(device, info)
         for desc in SWITCH_DESCRIPTIONS:
             if category not in desc.category_keys:
                 continue

@@ -70,6 +70,18 @@ class Z120PowerSwitchTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(entity.available)
         self.assertTrue(entity.is_on)
 
+    async def test_product_name_recovers_z120_power_for_unrecognized_key(self) -> None:
+        coordinator = FakeCoordinator(
+            {"PowerSwitch": {"value": 1}},
+            product_key="regional-z120-product",
+            product_name="352@Z120@空气消毒机",
+        )
+
+        entities = await setup_entities(self.module, coordinator)
+
+        entity = entity_by_unique_id(entities, "iot-1_PowerSwitch")
+        self.assertTrue(entity.is_on)
+
     async def test_non_z120_air_purifier_does_not_get_duplicate_power(self) -> None:
         coordinator = FakeCoordinator(
             {"PowerSwitch": {"value": 1}}, product_key="legacy-product"
@@ -103,6 +115,24 @@ class Z120SelectSetupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(gear.options, GEAR_OPTIONS)
         self.assertEqual(mode.current_option, "manual")
         self.assertEqual(gear.current_option, "gear_2")
+
+    async def test_z120_product_name_recovers_unrecognized_product_key(self) -> None:
+        coordinator = FakeCoordinator(
+            {
+                "PowerSwitch": {"value": 1},
+                "WorkMode": {"value": 4},
+                "WindSpeed": {"value": 6},
+            },
+            product_key="regional-z120-product",
+            product_name="352@Z120@空气消毒机",
+        )
+
+        entities = await setup_entities(self.module, coordinator)
+
+        mode = entity_by_unique_id(entities, "iot-1_WorkMode")
+        gear = entity_by_unique_id(entities, "iot-1_WindSpeed")
+        self.assertEqual(mode.current_option, "manual")
+        self.assertEqual(gear.current_option, "gear_6")
 
     async def test_lowercase_windspeed_keeps_stable_unique_id(self) -> None:
         coordinator = FakeCoordinator(

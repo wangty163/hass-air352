@@ -14,6 +14,7 @@ from .const import (
     MANUFACTURER,
     Z120_PRODUCT_KEY,
     normalize_device_category,
+    resolve_product_key,
 )
 from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
@@ -56,7 +57,7 @@ async def async_setup_entry(
 
         iot_id = device["iotId"]
         info = coordinator.device_infos.get(iot_id, {})
-        product_key = device.get("productKey") or info.get("productKey")
+        product_key = resolve_product_key(device, info)
         if product_key != Z120_PRODUCT_KEY:
             continue
 

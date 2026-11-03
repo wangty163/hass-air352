@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import dataclasses
+import runpy
 import sys
 import types
 from dataclasses import dataclass
@@ -42,6 +43,10 @@ class SwitchEntity(_WritableEntity):
     pass
 
 
+class SensorEntity(_WritableEntity):
+    pass
+
+
 @dataclass(frozen=True)
 class SelectEntityDescription:
     key: str
@@ -55,6 +60,20 @@ class SwitchEntityDescription:
     key: str
     name: str | None = None
     icon: str | None = None
+    translation_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SensorEntityDescription:
+    key: str
+    name: str | None = None
+    native_unit_of_measurement: str | None = None
+    device_class: str | None = None
+    state_class: str | None = None
+    options: list[str] | None = None
+    icon: str | None = None
+    entity_category: str | None = None
+    entity_registry_enabled_default: bool = True
     translation_key: str | None = None
 
 
@@ -89,6 +108,31 @@ def load_platform_module(platform: str):
     switch = types.ModuleType("homeassistant.components.switch")
     switch.SwitchEntity = SwitchEntity
     switch.SwitchEntityDescription = SwitchEntityDescription
+    sensor = types.ModuleType("homeassistant.components.sensor")
+    setattr(sensor, "SensorEntity", SensorEntity)
+    setattr(sensor, "SensorEntityDescription", SensorEntityDescription)
+    setattr(
+        sensor,
+        "SensorDeviceClass",
+        types.SimpleNamespace(
+            PM25="pm25",
+            PM10="pm10",
+            ENUM="enum",
+            VOLATILE_ORGANIC_COMPOUNDS="volatile_organic_compounds",
+            CO2="carbon_dioxide",
+            TEMPERATURE="temperature",
+            HUMIDITY="humidity",
+            SIGNAL_STRENGTH="signal_strength",
+        ),
+    )
+    setattr(
+        sensor,
+        "SensorStateClass",
+        types.SimpleNamespace(
+            MEASUREMENT="measurement",
+            TOTAL_INCREASING="total_increasing",
+        ),
+    )
     config_entries = types.ModuleType("homeassistant.config_entries")
     config_entries.ConfigEntry = EmptyType
     core = types.ModuleType("homeassistant.core")
@@ -100,14 +144,23 @@ def load_platform_module(platform: str):
     update_coordinator.CoordinatorEntity = CoordinatorEntity
     exceptions = types.ModuleType("homeassistant.exceptions")
     exceptions.HomeAssistantError = HomeAssistantError
+    ha_const = types.ModuleType("homeassistant.const")
+    setattr(ha_const, "CONCENTRATION_MICROGRAMS_PER_CUBIC_METER", "µg/m³")
+    setattr(ha_const, "CONCENTRATION_PARTS_PER_MILLION", "ppm")
+    setattr(ha_const, "PERCENTAGE", "%")
+    setattr(ha_const, "EntityCategory", types.SimpleNamespace(DIAGNOSTIC="diagnostic"))
+    setattr(ha_const, "UnitOfTime", types.SimpleNamespace(HOURS="h"))
+    setattr(ha_const, "UnitOfTemperature", types.SimpleNamespace(CELSIUS="°C"))
 
     sys.modules.update(
         {
             "homeassistant": homeassistant,
             "homeassistant.components": components,
             "homeassistant.components.select": select,
+            "homeassistant.components.sensor": sensor,
             "homeassistant.components.switch": switch,
             "homeassistant.config_entries": config_entries,
+            "homeassistant.const": ha_const,
             "homeassistant.core": core,
             "homeassistant.helpers": helpers,
             "homeassistant.helpers.entity_platform": entity_platform,
@@ -134,6 +187,15 @@ def load_platform_module(platform: str):
     }
     const.normalize_device_category = lambda value: category_aliases.get(
         str(value or "").lower(), value or ""
+    )
+    const_values = runpy.run_path(
+        str(REPO_ROOT / "custom_components" / "air352" / "const.py")
+    )
+    setattr(const, "resolve_product_key", const_values["resolve_product_key"])
+    setattr(
+        const,
+        "is_invalid_sensor_value",
+        const_values["is_invalid_sensor_value"],
     )
     sys.modules["custom_components.air352.const"] = const
 
@@ -199,7 +261,8 @@ class FakeCoordinator:
         self,
         properties: dict,
         *,
-        product_key: str = Z120_PRODUCT_KEY,
+        product_key: str | None = Z120_PRODUCT_KEY,
+        product_name: str = "352 purifier",
         category_key: str = "AirPurifier",
     ) -> None:
         self.data = {"iot-1": properties}
@@ -207,7 +270,7 @@ class FakeCoordinator:
             {
                 "iotId": "iot-1",
                 "productKey": product_key,
-                "productName": "352 purifier",
+                "productName": product_name,
                 "categoryKey": category_key,
             }
         ]
