@@ -42,6 +42,17 @@ class SwitchEntity(_WritableEntity):
     pass
 
 
+class SensorEntity:
+    pass
+
+
+class _ConstantNamespace:
+    """Return the attribute name for any HA enum member the platform reads."""
+
+    def __getattr__(self, name: str) -> str:
+        return name
+
+
 @dataclass(frozen=True)
 class SelectEntityDescription:
     key: str
@@ -56,6 +67,20 @@ class SwitchEntityDescription:
     name: str | None = None
     icon: str | None = None
     translation_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SensorEntityDescription:
+    key: str
+    name: str | None = None
+    icon: str | None = None
+    translation_key: str | None = None
+    device_class: str | None = None
+    state_class: str | None = None
+    entity_category: str | None = None
+    native_unit_of_measurement: str | None = None
+    options: list[str] | None = None
+    entity_registry_enabled_default: bool = True
 
 
 class EmptyType:
@@ -89,6 +114,18 @@ def load_platform_module(platform: str):
     switch = types.ModuleType("homeassistant.components.switch")
     switch.SwitchEntity = SwitchEntity
     switch.SwitchEntityDescription = SwitchEntityDescription
+    sensor = types.ModuleType("homeassistant.components.sensor")
+    sensor.SensorEntity = SensorEntity
+    sensor.SensorEntityDescription = SensorEntityDescription
+    sensor.SensorDeviceClass = _ConstantNamespace()
+    sensor.SensorStateClass = _ConstantNamespace()
+    ha_const = types.ModuleType("homeassistant.const")
+    ha_const.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER = "µg/m³"
+    ha_const.CONCENTRATION_PARTS_PER_MILLION = "ppm"
+    ha_const.PERCENTAGE = "%"
+    ha_const.EntityCategory = _ConstantNamespace()
+    ha_const.UnitOfTime = _ConstantNamespace()
+    ha_const.UnitOfTemperature = _ConstantNamespace()
     config_entries = types.ModuleType("homeassistant.config_entries")
     config_entries.ConfigEntry = EmptyType
     core = types.ModuleType("homeassistant.core")
@@ -107,6 +144,8 @@ def load_platform_module(platform: str):
             "homeassistant.components": components,
             "homeassistant.components.select": select,
             "homeassistant.components.switch": switch,
+            "homeassistant.components.sensor": sensor,
+            "homeassistant.const": ha_const,
             "homeassistant.config_entries": config_entries,
             "homeassistant.core": core,
             "homeassistant.helpers": helpers,
