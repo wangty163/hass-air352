@@ -237,7 +237,7 @@ class Air352MobileChannel:
         self._reauthenticating = True
         self._bind_reauth_attempted = True
         try:
-            await self._api.authenticate()
+            await self._api.authenticate(force=True)
             await self._async_publish_account_bind()
         except Exception:
             _LOGGER.exception(

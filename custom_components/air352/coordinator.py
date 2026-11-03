@@ -43,7 +43,8 @@ class Air352Coordinator(DataUpdateCoordinator):
         self._last_active_refresh: dict[str, float] = {}
         self._monotonic = time.monotonic
 
-    async def async_setup(self) -> None:
+    async def _async_setup(self) -> None:
+        """Let HA's first-refresh wrapper handle retries and authentication."""
         try:
             await self.api.authenticate()
             self.devices = await self.api.get_device_list()
@@ -77,6 +78,7 @@ class Air352Coordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Stop background network resources."""
+        await super().async_shutdown()
         if self._mobile_channel is not None:
             await self._mobile_channel.async_stop()
             self._mobile_channel = None
@@ -111,8 +113,10 @@ class Air352Coordinator(DataUpdateCoordinator):
 
         for dev, result in zip(self.devices, results):
             iot_id = dev["iotId"]
+            if isinstance(result, Air352AuthError):
+                raise ConfigEntryAuthFailed(str(result)) from result
             if isinstance(result, Exception):
-                _LOGGER.warning("Failed to get properties for %s: %s", iot_id, result)
+                _LOGGER.debug("Failed to get properties for %s: %s", iot_id, result)
                 self._property_state.data.setdefault(iot_id, {})
             else:
                 self._property_state.merge_device(
@@ -120,6 +124,8 @@ class Air352Coordinator(DataUpdateCoordinator):
                     result,
                     source="rest",
                 )
+        if results and all(isinstance(result, Exception) for result in results):
+            raise UpdateFailed("Unable to refresh any 352 device") from results[0]
         return self._property_state.snapshot()
 
     async def _async_request_active_reports(self) -> None:

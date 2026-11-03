@@ -1,0 +1,45 @@
+name: Integration tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.12"
+            homeassistant: "2024.8.0"
+          - python: "3.14"
+            homeassistant: "2026.9.4"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Home Assistant and test dependencies
+        env:
+          HA_VERSION: ${{ matrix.homeassistant }}
+        run: |
+          if [ "$HA_VERSION" = "2024.8.0" ]; then
+            python -m pip install "homeassistant==$HA_VERSION" -r requirements-test.txt -c tests/constraints-ha-2024.8.txt
+          else
+            python -m pip install "homeassistant==$HA_VERSION" -r requirements-test.txt
+          fi
+      - name: Run existing unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Check entity contracts against Home Assistant
+        run: PYTHONPATH=. python tests/verify_real_ha_contract.py -v
+      - name: Check recovery against Home Assistant
+        run: python -m pytest -q tests/verify_recovery.py
+      - name: Check Python syntax
+        run: python -m compileall -q custom_components tests

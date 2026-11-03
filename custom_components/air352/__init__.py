@@ -19,11 +19,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = entry.data[CONF_USERNAME]
     api = Air352ApiClient(session, username, entry.data[CONF_PASSWORD])
     coordinator = Air352Coordinator(hass, api, username)
-    await coordinator.async_setup()
-    await coordinator.async_config_entry_first_refresh()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
-    await coordinator.async_start_push()
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await coordinator.async_config_entry_first_refresh()
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+        await coordinator.async_start_push()
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except BaseException:
+        await coordinator.async_shutdown()
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        raise
     return True
 
 
