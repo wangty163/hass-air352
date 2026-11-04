@@ -13,7 +13,7 @@ from .const import (
     ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    Z120_COMPOSITE_SETTING_SWITCHES,
+    Z120_COMPOSITE_SETTING_THRESHOLDS,
     Z120_PRODUCT_KEY,
 )
 from .mobile_channel import Air352MobileChannel
@@ -102,7 +102,9 @@ class Air352Coordinator(DataUpdateCoordinator):
             self.async_set_updated_data(self._property_state.snapshot())
             raise
 
-        if any(key in Z120_COMPOSITE_SETTING_SWITCHES for key in optimistic):
+        # Only Z120 composite frames carry thresholds; other models write one
+        # property and must not receive the Z120 settings-report command.
+        if any(key in Z120_COMPOSITE_SETTING_THRESHOLDS for key in values):
             await self._async_request_z120_settings_report(iot_id)
 
     async def _async_request_z120_settings_report(self, iot_id: str) -> None:
@@ -121,13 +123,16 @@ class Air352Coordinator(DataUpdateCoordinator):
             )
 
     async def async_query_z120_settings(self, iot_id: str) -> dict:
-        """Ask a Z120 to report its settings and return its refreshed properties."""
+        """Ask a Z120 to report its settings and return the properties it read."""
         await self.api.request_z120_settings_report(iot_id)
         await asyncio.sleep(ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS)
         properties = await self.api.get_device_properties(iot_id)
         if self._property_state.merge_device(iot_id, properties, source="rest"):
             self.async_set_updated_data(self._property_state.snapshot())
-        return self._property_state.data.get(iot_id, {})
+        # Omitted keys must not be filled from older reads. Returned keys use the
+        # merged value so newer pushes and still-pending commands are preserved.
+        merged = self._property_state.data.get(iot_id, {})
+        return {key: merged[key] for key in properties if key in merged}
 
     async def _async_update_data(self) -> dict[str, dict]:
         try:

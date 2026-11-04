@@ -39,7 +39,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check entity contracts against Home Assistant
         run: PYTHONPATH=. python tests/verify_real_ha_contract.py -v
-      - name: Check recovery and options flow against Home Assistant
-        run: python -m pytest -q tests/verify_recovery.py tests/verify_options_flow.py
+      - name: Check recovery, options flow, and Z120 settings against Home Assistant
+        run: python -m pytest -q tests/verify_recovery.py tests/verify_options_flow.py tests/verify_z120_settings.py
       - name: Check Python syntax
         run: python -m compileall -q custom_components tests

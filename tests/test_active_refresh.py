@@ -144,7 +144,7 @@ class ActiveRefreshCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["iot-z120"]["PM25"]["value"], 6)
         sleep.assert_not_awaited()
 
-    async def test_settings_query_reads_cloud_after_device_reports(self) -> None:
+    async def test_settings_query_returns_only_properties_this_read_reported(self) -> None:
         coordinator = self._coordinator()
         calls = []
         coordinator.api.request_z120_settings_report = AsyncMock(
@@ -170,9 +170,10 @@ class ActiveRefreshCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             props = await coordinator.async_query_z120_settings("iot-z120")
 
         self.assertEqual(calls, ["report", "settle", "read"])
-        self.assertEqual(props["PM25ThresholdOn"]["value"], 35)
-        self.assertEqual(props["MicrowaveSensor"]["value"], 1)
+        self.assertEqual(props, {"PM25ThresholdOn": {"value": 35, "time": 5_000}})
         coordinator.async_set_updated_data.assert_called_once()
+        cached = coordinator._property_state.data["iot-z120"]
+        self.assertEqual(cached["MicrowaveSensor"]["value"], 1)
 
 
 if __name__ == "__main__":

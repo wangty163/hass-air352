@@ -81,8 +81,9 @@ python3 -m pytest -q tests/verify_recovery.py tests/verify_options_flow.py
 
 Z120 的待机感应（`StandbySensorSwitch`）、智能模式（`SmartModeSwitch`）和微波感应
 （`MicrowaveSensor`）在官方面板中以 9 个设置属性（上述三个开关及 PM2.5、甲醛、TVOC 的开机/关机阈值）
-组成的完整帧写入。集成在每次切换前先发送官方 `SetResearchAll` 查询，读取设备上报的全部设置；
-任一设置缺失或数值无效时拒绝写入并报错，不会用默认值代替。开启智能模式会同时开启待机感应，与官方面板一致。
+组成的完整帧写入。集成在每次切换前先发送官方 `SetResearchAll` 查询，再读取云端返回的全部设置；
+本次读取缺少任一设置或数值无效时拒绝写入并报错，不会用旧缓存或默认值代替。尚未被设备确认的上一条切换命令会保留在下一帧中，
+避免连续切换时互相覆盖。开启智能模式会同时开启待机感应，与官方面板一致。其他型号只写入单个属性，不发送 Z120 专用查询。
 
 添加集成时或在集成“选项”中可填写可选的 User-Agent，用于 `app.352air.com` 请求；留空或清空后不发送自定义 User-Agent。
 
