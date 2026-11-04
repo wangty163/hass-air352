@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import unittest
+from unittest.mock import AsyncMock
 
 from control_test_support import (
     FakeCoordinator,
@@ -82,26 +84,41 @@ class Z120PowerSwitchTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_z120_microwave_sensor_sends_composite_settings_payload(self) -> None:
-        coordinator = FakeCoordinator(
-            {
-                "StandbySensorSwitch": {"value": 1},
-                "SmartModeSwitch": {"value": 0},
-                "MicrowaveSensor": {"value": 1},
-                "PM25ThresholdOn": {"value": 35},
-                "PM25ThresholdOff": {"value": 5},
-                "HCHOThresholdOn": {"value": 80},
-                "HCHOThresholdOff": {"value": 30},
-                "TVOCThresholdOn": {"value": 600},
-                "TVOCThresholdOff": {"value": 300},
-            },
-            product_key=Z120_PRODUCT_KEY,
+REPORTED_SETTINGS = {
+    "StandbySensorSwitch": {"value": 1},
+    "SmartModeSwitch": {"value": 0},
+    "MicrowaveSensor": {"value": 1},
+    "PM25ThresholdOn": {"value": 35},
+    "PM25ThresholdOff": {"value": 5},
+    "HCHOThresholdOn": {"value": 80},
+    "HCHOThresholdOff": {"value": 30},
+    "TVOCThresholdOn": {"value": 600},
+    "TVOCThresholdOff": {"value": 300},
+}
+
+
+class Z120CompositeSettingsSwitchTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.module = load_platform_module("switch")
+
+    async def _setup(self, snapshot: dict, reported: dict, **kwargs):
+        coordinator = FakeCoordinator(deepcopy(snapshot), **kwargs)
+        coordinator.async_query_z120_settings = AsyncMock(
+            return_value=deepcopy(reported)
         )
         entities = await setup_entities(self.module, coordinator)
+        return coordinator, entities
+
+    async def test_turn_off_writes_freshly_reported_settings(self) -> None:
+        stale = deepcopy(REPORTED_SETTINGS)
+        stale["PM25ThresholdOn"] = {"value": 10}
+        stale["SmartModeSwitch"] = {"value": 1}
+        coordinator, entities = await self._setup(stale, REPORTED_SETTINGS)
         microwave = entity_by_unique_id(entities, "iot-1_MicrowaveSensor")
 
         await microwave.async_turn_off()
 
+        coordinator.async_query_z120_settings.assert_awaited_once_with("iot-1")
         coordinator.api.set_device_properties.assert_awaited_once_with(
             "iot-1",
             {
@@ -118,44 +135,93 @@ class Z120PowerSwitchTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(microwave.is_on)
 
-    async def test_z120_smart_mode_turn_on_enables_standby_sensor_in_composite_payload(
-        self,
-    ) -> None:
-        coordinator = FakeCoordinator(
-            {
-                "StandbySensorSwitch": {"value": 0},
-                "SmartModeSwitch": {"value": 0},
-                "MicrowaveSensor": {"value": 1},
-                "PM25ThresholdOn": {"value": 35},
-                "PM25ThresholdOff": {"value": 5},
-                "HCHOThresholdOn": {"value": 80},
-                "HCHOThresholdOff": {"value": 30},
-                "TVOCThresholdOn": {"value": 600},
-                "TVOCThresholdOff": {"value": 300},
-            },
-        )
-        entities = await setup_entities(self.module, coordinator)
+    async def test_smart_mode_turn_on_also_enables_standby_sensor(self) -> None:
+        reported = deepcopy(REPORTED_SETTINGS)
+        reported["StandbySensorSwitch"] = {"value": 0}
+        coordinator, entities = await self._setup(reported, reported)
         smart_mode = entity_by_unique_id(entities, "iot-1_SmartModeSwitch")
         standby = entity_by_unique_id(entities, "iot-1_StandbySensorSwitch")
 
         await smart_mode.async_turn_on()
 
-        coordinator.api.set_device_properties.assert_awaited_once_with(
-            "iot-1",
-            {
-                "StandbySensorSwitch": 1,
-                "SmartModeSwitch": 1,
-                "MicrowaveSensor": 1,
-                "PM25ThresholdOn": 35,
-                "PM25ThresholdOff": 5,
-                "HCHOThresholdOn": 80,
-                "HCHOThresholdOff": 30,
-                "TVOCThresholdOn": 600,
-                "TVOCThresholdOff": 300,
-            },
-        )
+        payload = coordinator.api.set_device_properties.await_args.args[1]
+        self.assertEqual(payload["SmartModeSwitch"], 1)
+        self.assertEqual(payload["StandbySensorSwitch"], 1)
         self.assertTrue(smart_mode.is_on)
         self.assertTrue(standby.is_on)
+
+    async def test_reported_threshold_boundaries_are_written_back(self) -> None:
+        reported = deepcopy(REPORTED_SETTINGS)
+        reported["PM25ThresholdOn"] = {"value": 0}
+        reported["HCHOThresholdOn"] = {"value": " 80 "}
+        reported["TVOCThresholdOff"] = {"value": 65535}
+        coordinator, entities = await self._setup(reported, reported)
+
+        await entity_by_unique_id(entities, "iot-1_MicrowaveSensor").async_turn_off()
+
+        payload = coordinator.api.set_device_properties.await_args.args[1]
+        self.assertEqual(payload["PM25ThresholdOn"], 0)
+        self.assertEqual(payload["HCHOThresholdOn"], 80)
+        self.assertEqual(payload["TVOCThresholdOff"], 65535)
+
+    async def test_missing_settings_block_the_write(self) -> None:
+        partial = {"MicrowaveSensor": {"value": 1}}
+        coordinator, entities = await self._setup(partial, partial)
+        microwave = entity_by_unique_id(entities, "iot-1_MicrowaveSensor")
+
+        with self.assertRaisesRegex(
+            HomeAssistantError, "SmartModeSwitch.*TVOCThresholdOff"
+        ):
+            await microwave.async_turn_off()
+
+        coordinator.api.set_device_properties.assert_not_awaited()
+        self.assertTrue(microwave.is_on)
+
+    async def test_invalid_settings_block_the_write(self) -> None:
+        cases = [
+            ("SmartModeSwitch", 2),
+            ("StandbySensorSwitch", True),
+            ("PM25ThresholdOn", -1),
+            ("PM25ThresholdOff", 65536),
+            ("HCHOThresholdOff", "n/a"),
+            ("TVOCThresholdOn", None),
+            ("TVOCThresholdOff", 12.5),
+        ]
+        for key, value in cases:
+            with self.subTest(key=key, value=value):
+                reported = deepcopy(REPORTED_SETTINGS)
+                reported[key] = {"value": value}
+                coordinator, entities = await self._setup(reported, reported)
+                microwave = entity_by_unique_id(entities, "iot-1_MicrowaveSensor")
+
+                with self.assertRaisesRegex(HomeAssistantError, key):
+                    await microwave.async_turn_off()
+
+                coordinator.api.set_device_properties.assert_not_awaited()
+
+    async def test_settings_query_failure_blocks_the_write(self) -> None:
+        coordinator, entities = await self._setup(REPORTED_SETTINGS, {})
+        coordinator.async_query_z120_settings.side_effect = RuntimeError("offline")
+        microwave = entity_by_unique_id(entities, "iot-1_MicrowaveSensor")
+
+        with self.assertRaisesRegex(HomeAssistantError, "read 352 device settings"):
+            await microwave.async_turn_off()
+
+        coordinator.api.set_device_properties.assert_not_awaited()
+        self.assertTrue(microwave.is_on)
+
+    async def test_non_z120_settings_switch_writes_only_its_own_property(self) -> None:
+        coordinator, entities = await self._setup(
+            REPORTED_SETTINGS, {}, product_key="legacy-product"
+        )
+
+        await entity_by_unique_id(entities, "iot-1_SmartModeSwitch").async_turn_on()
+
+        coordinator.async_query_z120_settings.assert_not_awaited()
+        coordinator.api.set_device_properties.assert_awaited_once_with(
+            "iot-1", {"SmartModeSwitch": 1}
+        )
+
 
 class Z120SelectSetupTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

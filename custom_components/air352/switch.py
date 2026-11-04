@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -16,6 +17,7 @@ from .const import (
     DEVICE_TYPE_PURIFIER,
     DEVICE_TYPE_HUMIDIFIER,
     Z120_COMPOSITE_SETTING_SWITCHES,
+    Z120_COMPOSITE_SETTING_THRESHOLDS,
     Z120_PRODUCT_KEY,
     normalize_device_category,
 )
@@ -23,32 +25,40 @@ from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
 
 
-Z120_COMPOSITE_SETTING_DEFAULTS: dict[str, int] = {
-    "StandbySensorSwitch": 0,
-    "SmartModeSwitch": 0,
-    "MicrowaveSensor": 0,
-    "PM25ThresholdOn": 65535,
-    "PM25ThresholdOff": 65535,
-    "HCHOThresholdOn": 65535,
-    "HCHOThresholdOff": 65535,
-    "TVOCThresholdOn": 65535,
-    "TVOCThresholdOff": 65535,
-}
-
-
-def _extract_int_property(props: dict[str, Any], key: str, default: int) -> int:
+def _reported_setting(props: dict[str, Any], key: str) -> int | None:
+    """Return a device-reported composite setting, or None if it is unusable."""
     prop = props.get(key)
     raw = prop.get("value") if isinstance(prop, dict) else prop
-    if isinstance(raw, bool):
-        return int(raw)
-    if isinstance(raw, (int, float)):
-        return int(raw)
     if isinstance(raw, str):
         try:
-            return int(raw.strip())
+            value = int(raw.strip())
         except ValueError:
-            return default
-    return default
+            return None
+    elif isinstance(raw, int) and not isinstance(raw, bool):
+        value = raw
+    else:
+        return None
+    if key in Z120_COMPOSITE_SETTING_SWITCHES:
+        return value if value in (0, 1) else None
+    return value if 0 <= value <= 0xFFFF else None
+
+
+def _composite_settings(props: dict[str, Any]) -> dict[str, int]:
+    """Return all nine reported settings or refuse to build a partial frame."""
+    settings: dict[str, int] = {}
+    unusable: list[str] = []
+    for key in (*Z120_COMPOSITE_SETTING_SWITCHES, *Z120_COMPOSITE_SETTING_THRESHOLDS):
+        value = _reported_setting(props, key)
+        if value is None:
+            unusable.append(key)
+        else:
+            settings[key] = value
+    if unusable:
+        raise HomeAssistantError(
+            "352 device did not report valid settings for: " + ", ".join(unusable)
+        )
+    return settings
+
 
 @dataclass(frozen=True, kw_only=True)
 class Air352SwitchDescription(SwitchEntityDescription):
@@ -159,7 +169,7 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         val = prop.get("value") if isinstance(prop, dict) else prop
         return bool(val)
 
-    def _build_command_payload(
+    async def _async_build_command_payload(
         self, target: int
     ) -> tuple[dict[str, int], dict[str, int]]:
         key = self.entity_description.key
@@ -170,11 +180,11 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
             payload = {key: target}
             return payload, payload
 
-        props = (self.coordinator.data or {}).get(self._iot_id, {})
-        values = {
-            setting_key: _extract_int_property(props, setting_key, default)
-            for setting_key, default in Z120_COMPOSITE_SETTING_DEFAULTS.items()
-        }
+        try:
+            props = await self.coordinator.async_query_z120_settings(self._iot_id)
+        except Exception as err:
+            raise HomeAssistantError("Failed to read 352 device settings") from err
+        values = _composite_settings(props)
         values[key] = target
         optimistic_values = {key: target}
         if key == "SmartModeSwitch" and target == 1:
@@ -183,7 +193,7 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         return values, optimistic_values
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        values, optimistic_values = self._build_command_payload(1)
+        values, optimistic_values = await self._async_build_command_payload(1)
         await async_set_device_properties(
             self.coordinator,
             self._iot_id,
@@ -192,7 +202,7 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        values, optimistic_values = self._build_command_payload(0)
+        values, optimistic_values = await self._async_build_command_payload(0)
         await async_set_device_properties(
             self.coordinator,
             self._iot_id,

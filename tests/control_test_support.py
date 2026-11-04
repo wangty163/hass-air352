@@ -174,12 +174,18 @@ def load_platform_module(platform: str):
     const.normalize_device_category = lambda value: category_aliases.get(
         str(value or "").lower(), value or ""
     )
-    const.Z120_COMPOSITE_SETTING_SWITCHES = frozenset(
-        {
-            "StandbySensorSwitch",
-            "SmartModeSwitch",
-            "MicrowaveSensor",
-        }
+    const.Z120_COMPOSITE_SETTING_SWITCHES = (
+        "StandbySensorSwitch",
+        "SmartModeSwitch",
+        "MicrowaveSensor",
+    )
+    const.Z120_COMPOSITE_SETTING_THRESHOLDS = (
+        "PM25ThresholdOn",
+        "PM25ThresholdOff",
+        "HCHOThresholdOn",
+        "HCHOThresholdOff",
+        "TVOCThresholdOn",
+        "TVOCThresholdOff",
     )
     sys.modules["custom_components.air352.const"] = const
 

@@ -28,13 +28,22 @@ Z120_REFRESH_VALUE = "1"
 
 Z120_SETTINGS_REFRESH_PROPERTY = "SetResearchAll"
 Z120_SETTINGS_REFRESH_VALUE = 1
-Z120_COMPOSITE_SETTING_SWITCHES = frozenset(
-    {
-        "StandbySensorSwitch",
-        "SmartModeSwitch",
-        "MicrowaveSensor",
-    }
+# The Z120 settings panel writes these nine properties as one frame, so every
+# write must carry device-reported values for all of them.
+Z120_COMPOSITE_SETTING_SWITCHES = (
+    "StandbySensorSwitch",
+    "SmartModeSwitch",
+    "MicrowaveSensor",
 )
+Z120_COMPOSITE_SETTING_THRESHOLDS = (
+    "PM25ThresholdOn",
+    "PM25ThresholdOff",
+    "HCHOThresholdOn",
+    "HCHOThresholdOff",
+    "TVOCThresholdOn",
+    "TVOCThresholdOff",
+)
+
 CATEGORY_KEY_ALIASES = {
     DEVICE_TYPE_AIR.lower(): DEVICE_TYPE_AIR,
     DEVICE_TYPE_HUMIDIFIER.lower(): DEVICE_TYPE_HUMIDIFIER,
@@ -48,3 +57,8 @@ def normalize_device_category(category_key: str | None) -> str:
         return ""
     category = str(category_key)
     return CATEGORY_KEY_ALIASES.get(category.lower(), category)
+
+
+def configured_user_agent(entry) -> str:
+    """Return the entry's User-Agent; a saved options value, even empty, wins."""
+    return entry.options.get(CONF_USER_AGENT, entry.data.get(CONF_USER_AGENT, ""))

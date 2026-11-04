@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Air352ApiClient
-from .const import CONF_USER_AGENT, DOMAIN
+from .const import DOMAIN, configured_user_agent
 from .coordinator import Air352Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,12 +17,11 @@ PLATFORMS = [Platform.FAN, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
     username = entry.data[CONF_USERNAME]
-    user_agent = entry.options.get(CONF_USER_AGENT, entry.data.get(CONF_USER_AGENT))
     api = Air352ApiClient(
         session,
         username,
         entry.data[CONF_PASSWORD],
-        user_agent=user_agent,
+        user_agent=configured_user_agent(entry),
     )
     coordinator = Air352Coordinator(hass, api, username)
     try:

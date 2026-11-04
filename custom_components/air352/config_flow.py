@@ -8,7 +8,7 @@ from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import callback
 
 from .api import Air352ApiClient, Air352AuthError, Air352ConnectionError
-from .const import CONF_USER_AGENT, DOMAIN
+from .const import CONF_USER_AGENT, DOMAIN, configured_user_agent
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,10 +66,7 @@ class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
             session = aiohttp.ClientSession()
             try:
-                user_agent = entry.options.get(
-                    CONF_USER_AGENT,
-                    entry.data.get(CONF_USER_AGENT),
-                )
+                user_agent = configured_user_agent(entry)
                 api = Air352ApiClient(
                     session,
                     entry.data[CONF_USERNAME],
@@ -100,15 +97,20 @@ class Air352ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class Air352OptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # A cleared field is omitted from user_input; persist the empty
+            # value so it does not fall back to the setup-time User-Agent.
+            user_agent = user_input.get(CONF_USER_AGENT, "").strip()
+            return self.async_create_entry(
+                title="", data={CONF_USER_AGENT: user_agent}
+            )
 
-        current_ua = self.config_entry.options.get(
-            CONF_USER_AGENT,
-            self.config_entry.data.get(CONF_USER_AGENT, ""),
-        )
+        # HA 2024.8 has no OptionsFlow.config_entry; on every supported version
+        # an options flow's handler is the config entry id.
+        entry = self.hass.config_entries.async_get_entry(self.handler)
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Optional(CONF_USER_AGENT, default=current_ua or ""): str,
-            }),
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema({vol.Optional(CONF_USER_AGENT): str}),
+                {CONF_USER_AGENT: configured_user_agent(entry)},
+            ),
         )

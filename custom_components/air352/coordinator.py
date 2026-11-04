@@ -120,6 +120,15 @@ class Air352Coordinator(DataUpdateCoordinator):
                 err,
             )
 
+    async def async_query_z120_settings(self, iot_id: str) -> dict:
+        """Ask a Z120 to report its settings and return its refreshed properties."""
+        await self.api.request_z120_settings_report(iot_id)
+        await asyncio.sleep(ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS)
+        properties = await self.api.get_device_properties(iot_id)
+        if self._property_state.merge_device(iot_id, properties, source="rest"):
+            self.async_set_updated_data(self._property_state.snapshot())
+        return self._property_state.data.get(iot_id, {})
+
     async def _async_update_data(self) -> dict[str, dict]:
         try:
             await self._async_request_active_reports()
@@ -187,7 +196,6 @@ class Air352Coordinator(DataUpdateCoordinator):
                 )
             else:
                 report_requested = True
-
 
         settings_requester = getattr(self.api, "request_z120_settings_report", None)
         if settings_requester is not None:
