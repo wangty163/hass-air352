@@ -16,6 +16,8 @@ Home Assistant 自定义集成，支持 [352](https://www.352air.com/) 空气净
 
 ## 安装
 
+需要 Home Assistant 2024.8 或更新版本；现有风扇控制使用了该版本新增的功能标志。
+
 ### HACS（推荐）
 
 1. HACS → 集成 → 右上角三点 → 自定义仓库
@@ -30,6 +32,13 @@ Home Assistant 自定义集成，支持 [352](https://www.352air.com/) 空气净
 ## 配置
 
 设置 → 设备与服务 → 添加集成 → 搜索 "352 Air" → 输入 352Life App 的手机号和密码。
+
+## 云端故障恢复
+
+启动时如果 352 或阿里云接口暂时超时、不可达，集成会交给 Home Assistant 自动退避重试，
+服务恢复后自动加载。运行期间所有设备读取失败会标记为不可用，后续成功读取会恢复状态；
+认证错误会进入重新认证流程，临时网关错误不会直接要求重新登录。并发请求共用一次登录，登录失败后等待至少
+60 秒再由同一客户端重试，避免多个请求反复登录。
 
 ## Z120 控制实体（4.0.0+）
 
@@ -63,6 +72,9 @@ Z120 的 `/thing/properties/get` 只返回云端已有快照，不会要求设�
 python3 -m unittest discover -s tests -v
 # 下面一项需在安装了 Home Assistant 的 Python 环境中执行
 PYTHONPATH=. python3 tests/verify_real_ha_contract.py -v
+# 恢复测试同样使用实际的 Home Assistant 类；不访问真实账号或设备
+python3 -m pip install -r requirements-test.txt
+python3 -m pytest -q tests/verify_recovery.py
 ```
 
 ## 工作原理

@@ -1,0 +1,2 @@
+# The older acme dependency expects ComparableX509, removed in josepy 2.
+josepy==1.15.0
