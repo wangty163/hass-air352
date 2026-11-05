@@ -23,6 +23,8 @@ class PendingProperty:
     issued_at_ms: int
     expires_at: float
     previous: Any
+    optimistic: dict[str, Any]
+    predecessor: PendingProperty | None = None
 
 
 class PropertyState:
@@ -42,26 +44,26 @@ class PropertyState:
     ) -> str:
         """Apply optimistic values and return a rollback token."""
         issued_at_ms = now_ms or int(time.time() * 1000)
-        expires_at = (
-            monotonic_now if monotonic_now is not None else time.monotonic()
-        ) + COMMAND_CONFIRM_TIMEOUT
+        now = monotonic_now if monotonic_now is not None else time.monotonic()
+        expires_at = now + COMMAND_CONFIRM_TIMEOUT
         token = uuid.uuid4().hex
         properties = self.data.setdefault(iot_id, {})
 
         for key, target in values.items():
-            current_value = properties.get(key, _MISSING)
-            previous = (
-                _MISSING
-                if current_value is _MISSING
-                else deepcopy(current_value)
-            )
-            self._pending[(iot_id, key)] = PendingProperty(
-                token=token,
-                target=target,
-                issued_at_ms=issued_at_ms,
-                expires_at=expires_at,
-                previous=previous,
-            )
+            pending_key = (iot_id, key)
+            existing = self._pending.get(pending_key)
+            if existing is not None:
+                previous = existing.previous
+                predecessor = existing if now < existing.expires_at else None
+            else:
+                current_value = properties.get(key, _MISSING)
+                previous = (
+                    _MISSING
+                    if current_value is _MISSING
+                    else deepcopy(current_value)
+                )
+                predecessor = None
+
             current = properties.get(key)
             if isinstance(current, dict):
                 optimistic = dict(current)
@@ -69,22 +71,53 @@ class PropertyState:
                 optimistic["time"] = issued_at_ms
             else:
                 optimistic = {"value": target, "time": issued_at_ms}
+
+            self._pending[pending_key] = PendingProperty(
+                token=token,
+                target=target,
+                issued_at_ms=issued_at_ms,
+                expires_at=expires_at,
+                previous=previous,
+                optimistic=deepcopy(optimistic),
+                predecessor=predecessor,
+            )
             properties[key] = optimistic
 
         return token
 
-    def rollback_command(self, token: str) -> None:
+    def rollback_command(
+        self,
+        token: str,
+        *,
+        monotonic_now: float | None = None,
+    ) -> None:
         """Rollback still-pending properties from a failed cloud command."""
+        now = monotonic_now if monotonic_now is not None else time.monotonic()
         for pending_key, pending in list(self._pending.items()):
             if pending.token != token:
+                cursor = pending
+                while cursor.predecessor is not None:
+                    if cursor.predecessor.token == token:
+                        cursor.predecessor = cursor.predecessor.predecessor
+                        break
+                    cursor = cursor.predecessor
                 continue
+
             iot_id, property_key = pending_key
             properties = self.data.setdefault(iot_id, {})
-            if pending.previous is _MISSING:
-                properties.pop(property_key, None)
+            restored = pending.predecessor
+            while restored is not None and now >= restored.expires_at:
+                restored = restored.predecessor
+
+            if restored is not None:
+                self._pending[pending_key] = restored
+                properties[property_key] = deepcopy(restored.optimistic)
             else:
-                properties[property_key] = pending.previous
-            self._pending.pop(pending_key, None)
+                self._pending.pop(pending_key, None)
+                if pending.previous is _MISSING:
+                    properties.pop(property_key, None)
+                else:
+                    properties[property_key] = deepcopy(pending.previous)
 
     def merge_device(
         self,

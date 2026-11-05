@@ -1,5 +1,6 @@
 """Z120 composite settings writes through the real coordinator and switch."""
 
+import asyncio
 import inspect
 import sys
 from pathlib import Path
@@ -158,3 +159,123 @@ async def test_non_z120_settings_switch_sends_no_z120_commands(runtime):
         call(IOT_ID, {"SmartModeSwitch": 1})
     ]
     api.get_device_properties.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failed_replacement_command_does_not_orphan_predecessor_past_deadline(
+    runtime,
+):
+    api, coordinator = runtime
+    device = add_device(coordinator, reported(SETTINGS, 1_000))
+    api.get_device_properties.return_value = reported(SETTINGS, 1_000)
+    microwave = switch(coordinator, device, "MicrowaveSensor")
+    smart = switch(coordinator, device, "SmartModeSwitch")
+    now = 10.0
+
+    with (
+        patch("custom_components.air352.state.time.monotonic", side_effect=lambda: now),
+        patch(
+            "custom_components.air352.state.time.time",
+            side_effect=lambda: 100.0 + now,
+        ),
+    ):
+        await microwave.async_turn_on()
+        assert microwave.is_on is True
+
+        now = 12.0
+
+        async def fail_composite_write(_iot_id, values):
+            if "MicrowaveSensor" in values:
+                raise RuntimeError("cloud write failed")
+
+        api.set_device_properties.side_effect = fail_composite_write
+        with pytest.raises(HomeAssistantError, match="Failed to update 352 device"):
+            await microwave.async_turn_off()
+        assert microwave.is_on is True
+
+        # Advance past A's original 15s deadline (25.0), but before B's (27.0).
+        now = 26.0
+        coordinator._property_state.merge_device(
+            IOT_ID, reported(SETTINGS, 1_000), source="rest"
+        )
+        api.set_device_properties.side_effect = None
+        api.set_device_properties.reset_mock()
+
+        await smart.async_turn_on()
+
+    assert microwave.is_on is False
+    assert api.set_device_properties.await_args_list == [
+        SETTINGS_REPORT,
+        call(
+            IOT_ID,
+            dict(SETTINGS, MicrowaveSensor=0, SmartModeSwitch=1, StandbySensorSwitch=1),
+        ),
+        SETTINGS_REPORT,
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_order", ["predecessor_first", "replacement_first"])
+async def test_overlapping_same_key_failures_do_not_resurrect_failed_predecessor(
+    runtime, fail_order
+):
+    api, coordinator = runtime
+    device = add_device(coordinator, reported(SETTINGS, 1_000))
+    api.get_device_properties.return_value = reported(SETTINGS, 1_000)
+    microwave = switch(coordinator, device, "MicrowaveSensor")
+    smart = switch(coordinator, device, "SmartModeSwitch")
+
+    first_in_flight = asyncio.Event()
+    second_in_flight = asyncio.Event()
+    release_first = asyncio.Event()
+    release_second = asyncio.Event()
+    composite_write_count = 0
+
+    async def fail_overlapping_writes(_iot_id, values):
+        nonlocal composite_write_count
+        if "MicrowaveSensor" not in values:
+            return
+        composite_write_count += 1
+        if composite_write_count == 1:
+            first_in_flight.set()
+            await release_first.wait()
+            raise RuntimeError("first write failed")
+        second_in_flight.set()
+        await release_second.wait()
+        raise RuntimeError("second write failed")
+
+    api.set_device_properties.side_effect = fail_overlapping_writes
+    first_task = asyncio.create_task(microwave.async_turn_on())
+    await first_in_flight.wait()
+    second_task = asyncio.create_task(microwave.async_turn_off())
+    await second_in_flight.wait()
+
+    if fail_order == "predecessor_first":
+        release_first.set()
+        with pytest.raises(HomeAssistantError, match="Failed to update 352 device"):
+            await first_task
+        release_second.set()
+        with pytest.raises(HomeAssistantError, match="Failed to update 352 device"):
+            await second_task
+    else:
+        release_second.set()
+        with pytest.raises(HomeAssistantError, match="Failed to update 352 device"):
+            await second_task
+        release_first.set()
+        with pytest.raises(HomeAssistantError, match="Failed to update 352 device"):
+            await first_task
+
+    assert microwave.is_on is False
+    api.set_device_properties.side_effect = None
+    api.set_device_properties.reset_mock()
+
+    await smart.async_turn_on()
+
+    assert api.set_device_properties.await_args_list == [
+        SETTINGS_REPORT,
+        call(
+            IOT_ID,
+            dict(SETTINGS, MicrowaveSensor=0, SmartModeSwitch=1, StandbySensorSwitch=1),
+        ),
+        SETTINGS_REPORT,
+    ]
