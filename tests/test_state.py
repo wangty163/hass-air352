@@ -124,6 +124,77 @@ class PropertyStateTests(unittest.TestCase):
         self.assertEqual(self.state.data["iot-1"]["PM25"]["value"], 9)
         self.assertEqual(self.state.data["iot-1"]["TVOC"]["value"], 220)
 
+    def test_failed_replacement_command_preserves_predecessor_deadline(self) -> None:
+        self.state.begin_command(
+            "iot-1",
+            {"PowerSwitch": 0},
+            now_ms=2_000,
+            monotonic_now=10,
+        )
+        replacement_token = self.state.begin_command(
+            "iot-1",
+            {"PowerSwitch": 1},
+            now_ms=3_000,
+            monotonic_now=12,
+        )
+
+        self.state.rollback_command(replacement_token, monotonic_now=13)
+
+        self.assertEqual(
+            self.state.data["iot-1"]["PowerSwitch"],
+            {"value": 0, "time": 2_000},
+        )
+        self.assertFalse(
+            self.state.merge_device(
+                "iot-1",
+                {"PowerSwitch": {"value": 1, "time": 1_000}},
+                source="rest",
+                monotonic_now=20,
+            )
+        )
+        self.assertTrue(
+            self.state.merge_device(
+                "iot-1",
+                {"PowerSwitch": {"value": 1, "time": 1_000}},
+                source="rest",
+                monotonic_now=26,
+            )
+        )
+        self.assertEqual(
+            self.state.data["iot-1"]["PowerSwitch"],
+            {"value": 1, "time": 1_000},
+        )
+
+    def test_overlapping_failed_commands_restore_confirmed_baseline(self) -> None:
+        for first_to_fail in ("first", "second"):
+            with self.subTest(first_to_fail=first_to_fail):
+                self.setUp()
+                first_token = self.state.begin_command(
+                    "iot-1",
+                    {"PowerSwitch": 0},
+                    now_ms=2_000,
+                    monotonic_now=10,
+                )
+                second_token = self.state.begin_command(
+                    "iot-1",
+                    {"PowerSwitch": 0},
+                    now_ms=3_000,
+                    monotonic_now=12,
+                )
+                ordered = (
+                    (first_token, second_token)
+                    if first_to_fail == "first"
+                    else (second_token, first_token)
+                )
+                for token in ordered:
+                    self.state.rollback_command(token, monotonic_now=13)
+
+                self.assertEqual(
+                    self.state.data["iot-1"]["PowerSwitch"],
+                    {"value": 1, "time": 1_000},
+                )
+                self.assertEqual(self.state._pending, {})
+
 
 if __name__ == "__main__":
     unittest.main()

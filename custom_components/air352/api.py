@@ -15,6 +15,7 @@ import aiohttp
 from .const import (
     APPID_352, BASE_URL_352, ALI_APP_KEY, ALI_APP_SECRET,
     ALI_DOMAIN, ALI_OA_DOMAIN, Z120_REFRESH_PROPERTY, Z120_REFRESH_VALUE,
+    Z120_SETTINGS_REFRESH_PROPERTY, Z120_SETTINGS_REFRESH_VALUE,
 )
 from .mobile_protocol import (
     MobileTriple,
@@ -54,10 +55,17 @@ class Air352ApiError(Exception):
 
 class Air352ApiClient:
 
-    def __init__(self, session: aiohttp.ClientSession, username: str, password: str):
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        username: str,
+        password: str,
+        user_agent: str | None = None,
+    ):
         self._session = session
         self._username = username
         self._password = password
+        self._user_agent = (user_agent or "").strip() or None
         self._access_token: str | None = None
         self._iot_token: str | None = None
         self._iot_refresh_token: str | None = None
@@ -95,12 +103,16 @@ class Air352ApiClient:
 
     def _352_headers(self, path: str, token: str = "") -> dict:
         ts, sign = self._352_sign(path)
-        return {
+        headers = {
             "Content-Type": "application/json;charset=utf-8",
             "Authorization": f"Token {token}",
             "ts": ts,
             "sign": sign,
         }
+        user_agent = getattr(self, "_user_agent", None)
+        if user_agent:
+            headers["User-Agent"] = user_agent
+        return headers
 
     async def _352_request(self, method: str, path: str, json_data: dict | None = None) -> dict:
         url = BASE_URL_352 + path
@@ -360,6 +372,13 @@ class Air352ApiClient:
         await self.set_device_properties(
             iot_id,
             {Z120_REFRESH_PROPERTY: Z120_REFRESH_VALUE},
+        )
+
+    async def request_z120_settings_report(self, iot_id: str) -> None:
+        """Ask a Z120 to report all settings properties, as the official App does."""
+        await self.set_device_properties(
+            iot_id,
+            {Z120_SETTINGS_REFRESH_PROPERTY: Z120_SETTINGS_REFRESH_VALUE},
         )
 
     async def get_device_info(self, iot_id: str) -> dict:

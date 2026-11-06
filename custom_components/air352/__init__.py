@@ -6,7 +6,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import Air352ApiClient
-from .const import DOMAIN
+from .const import DOMAIN, configured_user_agent
 from .coordinator import Air352Coordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -17,7 +17,12 @@ PLATFORMS = [Platform.FAN, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
     username = entry.data[CONF_USERNAME]
-    api = Air352ApiClient(session, username, entry.data[CONF_PASSWORD])
+    api = Air352ApiClient(
+        session,
+        username,
+        entry.data[CONF_PASSWORD],
+        user_agent=configured_user_agent(entry),
+    )
     coordinator = Air352Coordinator(hass, api, username)
     try:
         await coordinator.async_config_entry_first_refresh()
@@ -28,6 +33,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_shutdown()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         raise
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
 
 
@@ -37,3 +43,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_shutdown()
     return unload_ok
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)

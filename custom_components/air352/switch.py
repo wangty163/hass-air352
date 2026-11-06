@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -15,11 +16,48 @@ from .const import (
     DEVICE_TYPE_AIR,
     DEVICE_TYPE_PURIFIER,
     DEVICE_TYPE_HUMIDIFIER,
+    Z120_COMPOSITE_SETTING_SWITCHES,
+    Z120_COMPOSITE_SETTING_THRESHOLDS,
     Z120_PRODUCT_KEY,
     normalize_device_category,
 )
 from .coordinator import Air352Coordinator
 from .entity import async_set_device_properties
+
+
+def _reported_setting(props: dict[str, Any], key: str) -> int | None:
+    """Return a device-reported composite setting, or None if it is unusable."""
+    prop = props.get(key)
+    raw = prop.get("value") if isinstance(prop, dict) else prop
+    if isinstance(raw, str):
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            return None
+    elif isinstance(raw, int) and not isinstance(raw, bool):
+        value = raw
+    else:
+        return None
+    if key in Z120_COMPOSITE_SETTING_SWITCHES:
+        return value if value in (0, 1) else None
+    return value if 0 <= value <= 0xFFFF else None
+
+
+def _composite_settings(props: dict[str, Any]) -> dict[str, int]:
+    """Return all nine reported settings or refuse to build a partial frame."""
+    settings: dict[str, int] = {}
+    unusable: list[str] = []
+    for key in (*Z120_COMPOSITE_SETTING_SWITCHES, *Z120_COMPOSITE_SETTING_THRESHOLDS):
+        value = _reported_setting(props, key)
+        if value is None:
+            unusable.append(key)
+        else:
+            settings[key] = value
+    if unusable:
+        raise HomeAssistantError(
+            "352 device did not report valid settings for: " + ", ".join(unusable)
+        )
+    return settings
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -115,13 +153,13 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         self._attr_unique_id = f"{self._iot_id}_{description.key}"
         self._attr_translation_key = description.key.lower()
         info = coordinator.device_infos.get(self._iot_id, {})
+        self._product_key = device.get("productKey") or info.get("productKey")
         self._attr_device_info = {
             "identifiers": {(DOMAIN, self._iot_id)},
             "name": device.get("productName", "352 Device"),
             "manufacturer": MANUFACTURER,
             "model": info.get("firmwareVersion", device.get("productModel", "")),
         }
-
     @property
     def is_on(self) -> bool | None:
         props = self.coordinator.data.get(self._iot_id, {})
@@ -131,14 +169,45 @@ class Air352Switch(CoordinatorEntity[Air352Coordinator], SwitchEntity):
         val = prop.get("value") if isinstance(prop, dict) else prop
         return bool(val)
 
+    async def _async_build_command_payload(
+        self, target: int
+    ) -> tuple[dict[str, int], dict[str, int]]:
+        key = self.entity_description.key
+        if (
+            self._product_key != Z120_PRODUCT_KEY
+            or key not in Z120_COMPOSITE_SETTING_SWITCHES
+        ):
+            payload = {key: target}
+            return payload, payload
+
+        try:
+            props = await self.coordinator.async_query_z120_settings(self._iot_id)
+        except Exception as err:
+            raise HomeAssistantError("Failed to read 352 device settings") from err
+        values = _composite_settings(props)
+        values[key] = target
+        optimistic_values = {key: target}
+        if key == "SmartModeSwitch" and target == 1:
+            values["StandbySensorSwitch"] = 1
+            optimistic_values["StandbySensorSwitch"] = 1
+        return values, optimistic_values
+
     async def async_turn_on(self, **kwargs: Any) -> None:
+        values, optimistic_values = await self._async_build_command_payload(1)
         await async_set_device_properties(
-            self.coordinator, self._iot_id, {self.entity_description.key: 1}
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values=optimistic_values,
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        values, optimistic_values = await self._async_build_command_payload(0)
         await async_set_device_properties(
-            self.coordinator, self._iot_id, {self.entity_description.key: 0}
+            self.coordinator,
+            self._iot_id,
+            values,
+            optimistic_values=optimistic_values,
         )
 
     @property

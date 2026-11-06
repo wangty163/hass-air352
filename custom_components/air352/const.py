@@ -16,6 +16,7 @@ ACTIVE_PROPERTY_REFRESH_SETTLE_SECONDS = 2
 CONF_IOT_TOKEN = "iot_token"
 CONF_IOT_REFRESH_TOKEN = "iot_refresh_token"
 CONF_IOT_TOKEN_EXPIRE = "iot_token_expire"
+CONF_USER_AGENT = "user_agent"
 
 DEVICE_TYPE_AIR = "AirPurifier"
 DEVICE_TYPE_HUMIDIFIER = "Humidifier"
@@ -24,6 +25,24 @@ DEVICE_TYPE_PURIFIER = "WaterPurifier"
 Z120_PRODUCT_KEY = "a10n269QEvP"
 Z120_REFRESH_PROPERTY = "ResearchAllProperty"
 Z120_REFRESH_VALUE = "1"
+
+Z120_SETTINGS_REFRESH_PROPERTY = "SetResearchAll"
+Z120_SETTINGS_REFRESH_VALUE = 1
+# The Z120 settings panel writes these nine properties as one frame, so every
+# write must carry device-reported values for all of them.
+Z120_COMPOSITE_SETTING_SWITCHES = (
+    "StandbySensorSwitch",
+    "SmartModeSwitch",
+    "MicrowaveSensor",
+)
+Z120_COMPOSITE_SETTING_THRESHOLDS = (
+    "PM25ThresholdOn",
+    "PM25ThresholdOff",
+    "HCHOThresholdOn",
+    "HCHOThresholdOff",
+    "TVOCThresholdOn",
+    "TVOCThresholdOff",
+)
 
 CATEGORY_KEY_ALIASES = {
     DEVICE_TYPE_AIR.lower(): DEVICE_TYPE_AIR,
@@ -38,3 +57,8 @@ def normalize_device_category(category_key: str | None) -> str:
         return ""
     category = str(category_key)
     return CATEGORY_KEY_ALIASES.get(category.lower(), category)
+
+
+def configured_user_agent(entry) -> str:
+    """Return the entry's User-Agent; a saved options value, even empty, wins."""
+    return entry.options.get(CONF_USER_AGENT, entry.data.get(CONF_USER_AGENT, ""))

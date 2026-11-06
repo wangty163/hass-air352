@@ -6,7 +6,8 @@
         "description": "Enter your 352Life app credentials",
         "data": {
           "username": "Phone number or email",
-          "password": "Password"
+          "password": "Password",
+          "user_agent": "User-Agent (optional)"
         }
       },
       "reauth_confirm": {
@@ -24,6 +25,16 @@
     "abort": {
       "already_configured": "This account is already configured",
       "reauth_successful": "Re-authentication successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "352 Air Options",
+        "data": {
+          "user_agent": "User-Agent (optional)"
+        }
+      }
     }
   },
   "entity": {

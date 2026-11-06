@@ -6,7 +6,8 @@
         "description": "请输入 352Life App 的账号和密码",
         "data": {
           "username": "手机号或邮箱",
-          "password": "密码"
+          "password": "密码",
+          "user_agent": "User-Agent（可选）"
         }
       },
       "reauth_confirm": {
@@ -24,6 +25,16 @@
     "abort": {
       "already_configured": "该账号已配置",
       "reauth_successful": "重新认证成功"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "352 空气设置",
+        "data": {
+          "user_agent": "User-Agent（可选）"
+        }
+      }
     }
   },
   "entity": {
